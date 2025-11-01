@@ -45,7 +45,7 @@ apt-get upgrade -y
 
 echo -e "${GREEN}Step 2: Installing system dependencies...${NC}"
 apt-get install -y python3 python3-pip python3-venv
-apt-get install -y hostapd dnsmasq network-manager
+apt-get install -y network-manager
 apt-get install -y avahi-daemon
 apt-get install -y git
 
@@ -53,52 +53,26 @@ echo -e "${GREEN}Step 3: Setting hostname to ${HOSTNAME}...${NC}"
 hostnamectl set-hostname "$HOSTNAME"
 sed -i "s/127.0.1.1.*/127.0.1.1\t$HOSTNAME/" /etc/hosts
 
-echo -e "${GREEN}Step 4: Configuring
+echo -e "${GREEN}Step 4: Configuring hotspot on wlan1 with NetworkManager...${NC}"
 
- hotspot on wlan1...${NC}"
-
-# Stop services
+# Stop and disable any conflicting services
 systemctl stop hostapd 2>/dev/null || true
+systemctl disable hostapd 2>/dev/null || true
 systemctl stop dnsmasq 2>/dev/null || true
+systemctl disable dnsmasq 2>/dev/null || true
 
-# Configure hostapd
-cat > /etc/hostapd/hostapd.conf << EOF
-interface=wlan1
-driver=nl80211
-ssid=$HOTSPOT_SSID
-hw_mode=g
-channel=7
-wmm_enabled=0
-macaddr_acl=0
-auth_algs=1
-ignore_broadcast_ssid=0
-wpa=2
-wpa_passphrase=$HOTSPOT_PASSWORD
-wpa_key_mgmt=WPA-PSK
-wpa_pairwise=TKIP
-rsn_pairwise=CCMP
-EOF
-
-# Point hostapd to config
-sed -i 's|#DAEMON_CONF=""|DAEMON_CONF="/etc/hostapd/hostapd.conf"|' /etc/default/hostapd
-
-# Configure dnsmasq
-cat > /etc/dnsmasq.conf << EOF
-interface=wlan1
-dhcp-range=$HOTSPOT_IP,192.168.4.20,255.255.255.0,24h
-domain=local
-address=/AIS.local/$HOTSPOT_IP
-EOF
-
-# Configure wlan1 static IP
+# Configure NetworkManager hotspot with built-in DHCP
 nmcli connection delete Hotspot 2>/dev/null || true
-nmcli connection add type wifi ifname wlan1 con-name Hotspot autoconnect yes ssid "$HOTSPOT_SSID" mode ap
-nmcli connection modify Hotspot 802-11-wireless.band bg
-nmcli connection modify Hotspot 802-11-wireless.channel 7
-nmcli connection modify Hotspot 802-11-wireless-security.key-mgmt wpa-psk
-nmcli connection modify Hotspot 802-11-wireless-security.psk "$HOTSPOT_PASSWORD"
-nmcli connection modify Hotspot ipv4.method manual ipv4.address $HOTSPOT_IP/24
-nmcli connection modify Hotspot connection.autoconnect yes
+nmcli connection add type wifi ifname wlan1 con-name Hotspot autoconnect yes ssid "$HOTSPOT_SSID" mode ap \
+    802-11-wireless.band bg \
+    802-11-wireless.channel 7 \
+    802-11-wireless-security.key-mgmt wpa-psk \
+    802-11-wireless-security.psk "$HOTSPOT_PASSWORD" \
+    ipv4.method shared \
+    ipv4.address $HOTSPOT_IP/24
+
+# Activate the hotspot connection
+nmcli connection up Hotspot
 
 echo -e "${GREEN}Step 5: Creating installation directory...${NC}"
 mkdir -p $INSTALL_DIR
@@ -130,15 +104,8 @@ EOF
 
 echo -e "${GREEN}Step 8: Enabling and starting services...${NC}"
 systemctl daemon-reload
-systemctl unmask hostapd
-systemctl enable hostapd
-systemctl enable dnsmasq
 systemctl enable avahi-daemon
 systemctl enable ${SERVICE_NAME}
-
-# Start hotspot services
-systemctl start hostapd
-systemctl start dnsmasq
 systemctl start avahi-daemon
 
 echo ""
