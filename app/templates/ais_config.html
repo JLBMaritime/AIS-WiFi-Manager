@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}AIS Configuration - AIS-WiFi Manager{% endblock %}
+{% block page_title %}AIS Configuration{% endblock %}
+
+{% block content %}
+<!-- AIS Service Status Section -->
+<section class="card">
+    <h2>AIS Service Status</h2>
+    <div class="ais-status">
+        <div class="status-row">
+            <span class="label">Service:</span>
+            <span id="service-status" class="status-badge">Loading...</span>
+        </div>
+        <div class="status-row">
+            <span class="label">Serial Port:</span>
+            <span id="serial-port" class="value">/dev/serial0</span>
+        </div>
+        <div class="status-actions">
+            <button id="start-btn" class="btn btn-success" disabled>Start</button>
+            <button id="stop-btn" class="btn btn-danger" disabled>Stop</button>
+            <button id="restart-btn" class="btn btn-secondary" disabled>Restart</button>
+        </div>
+    </div>
+</section>
+
+<!-- Endpoints Section -->
+<section class="card">
+    <div class="section-header">
+        <h2>Configured Endpoints</h2>
+        <button id="add-endpoint-btn" class="btn btn-primary">+ Add Endpoint</button>
+    </div>
+    <div id="endpoints-list" class="endpoints-list">
+        <div class="loading">Loading endpoints...</div>
+    </div>
+</section>
+
+<!-- Add/Edit Endpoint Modal -->
+<div id="endpoint-modal" class="modal">
+    <div class="modal-content">
+        <h3 id="modal-title">Add Endpoint</h3>
+        <form id="endpoint-form">
+            <div class="form-group">
+                <label for="endpoint-name">Name:</label>
+                <input type="text" id="endpoint-name" class="input-field" placeholder="e.g., Chart Plotter" required>
+            </div>
+            <div class="form-group">
+                <label for="endpoint-ip">IP Address:</label>
+                <input type="text" id="endpoint-ip" class="input-field" placeholder="e.g., 192.168.1.100" required>
+            </div>
+            <div class="form-group">
+                <label for="endpoint-port">Port:</label>
+                <input type="number" id="endpoint-port" class="input-field" placeholder="e.g., 12345" min="1" max="65535" required>
+            </div>
+            <div class="form-group checkbox-group">
+                <label>
+                    <input type="checkbox" id="endpoint-enabled" checked>
+                    <span>Enabled</span>
+                </label>
+            </div>
+            <div class="modal-buttons">
+                <button type="submit" class="btn btn-primary">Save</button>
+                <button type="button" id="modal-cancel" class="btn btn-cancel">Cancel</button>
+            </div>
+            <div id="modal-message" class="message"></div>
+        </form>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="delete-modal" class="modal">
+    <div class="modal-content">
+        <h3>Confirm Delete</h3>
+        <p>Are you sure you want to delete this endpoint?</p>
+        <p id="delete-endpoint-name" class="endpoint-name-display"></p>
+        <div class="modal-buttons">
+            <button id="confirm-delete" class="btn btn-danger">Delete</button>
+            <button id="cancel-delete" class="btn btn-cancel">Cancel</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/ais.js') }}"></script>
+{% endblock %}

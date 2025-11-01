@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}WiFi Manager - AIS-WiFi Manager{% endblock %}
+{% block page_title %}WiFi Manager{% endblock %}
+
+{% block content %}
+<!-- Current Connection Section -->
+<section class="card">
+    <h2>Current Connection</h2>
+    <div id="current-connection">
+        <div class="connection-info">
+            <div class="info-row">
+                <span class="label">Network:</span>
+                <span id="current-ssid" class="value">Not connected</span>
+            </div>
+            <div class="info-row">
+                <span class="label">IP Address:</span>
+                <span id="current-ip" class="value">-</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Available Networks Section -->
+<section class="card">
+    <div class="section-header">
+        <h2>Available Networks</h2>
+        <button id="scan-btn" class="btn btn-secondary">Scan</button>
+    </div>
+    <div id="available-networks" class="network-list">
+        <div class="loading">Scanning for networks...</div>
+    </div>
+</section>
+
+<!-- Saved Networks Section -->
+<section class="card">
+    <h2>Saved Networks</h2>
+    <div id="saved-networks" class="network-list">
+        <div class="loading">Loading saved networks...</div>
+    </div>
+</section>
+
+<!-- Network Diagnostics Section -->
+<section class="card">
+    <h2>Network Diagnostics</h2>
+    <div id="diagnostics-info">
+        <div class="diagnostics-controls">
+            <input type="text" id="ping-host" placeholder="Host to ping (default: 8.8.8.8)" class="input-field">
+            <button id="ping-btn" class="btn btn-secondary">Run Ping Test</button>
+        </div>
+        <div id="diagnostics-output" class="diagnostics-output"></div>
+    </div>
+</section>
+
+<!-- Password Modal -->
+<div id="password-modal" class="modal">
+    <div class="modal-content">
+        <h3>Connect to Network</h3>
+        <p id="modal-ssid"></p>
+        <input type="password" id="modal-password" class="input-field" placeholder="Enter password">
+        <div class="modal-buttons">
+            <button id="modal-connect" class="btn btn-secondary">Connect</button>
+            <button id="modal-cancel" class="btn btn-cancel">Cancel</button>
+        </div>
+        <div id="modal-message" class="message"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endblock %}

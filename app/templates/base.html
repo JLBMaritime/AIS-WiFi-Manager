@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AIS-WiFi Manager{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="header-content">
+                <img src="{{ url_for('static', filename='logo.png') }}" alt="JLBMaritime Logo" class="logo">
+                <h1>{% block page_title %}AIS-WiFi Manager{% endblock %}</h1>
+            </div>
+        </header>
+
+        <!-- Navigation -->
+        <nav class="main-nav">
+            <a href="{{ url_for('index') }}" class="nav-link {% if request.endpoint == 'index' %}active{% endif %}">WiFi Manager</a>
+            <a href="{{ url_for('ais_config') }}" class="nav-link {% if request.endpoint == 'ais_config' %}active{% endif %}">AIS Configuration</a>
+            <a href="{{ url_for('ais_logs') }}" class="nav-link {% if request.endpoint == 'ais_logs' %}active{% endif %}">AIS Logs</a>
+        </nav>
+
+        <!-- Page Content -->
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>
