@@ -97,8 +97,7 @@ nmcli connection modify Hotspot 802-11-wireless.band bg
 nmcli connection modify Hotspot 802-11-wireless.channel 7
 nmcli connection modify Hotspot 802-11-wireless-security.key-mgmt wpa-psk
 nmcli connection modify Hotspot 802-11-wireless-security.psk "$HOTSPOT_PASSWORD"
-nmcli connection modify Hotspot ipv4.method manual
-nmcli connection modify Hotspot ipv4.address $HOTSPOT_IP/24
+nmcli connection modify Hotspot ipv4.method manual ipv4.address $HOTSPOT_IP/24
 nmcli connection modify Hotspot connection.autoconnect yes
 
 echo -e "${GREEN}Step 5: Creating installation directory...${NC}"
