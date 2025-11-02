@@ -5,6 +5,7 @@ Unified command-line interface for WiFi and AIS management
 """
 import sys
 import os
+import subprocess
 
 # Add parent directory to path to import app modules
 # Use realpath to properly resolve symlinks
@@ -16,11 +17,52 @@ from app.wifi_manager import (
 )
 from app.network_diagnostics import ping_test, get_full_diagnostics
 from app.database import get_saved_networks, init_db
-from app.ais_manager import ais_manager
 from app.ais_config_manager import (
     get_all_endpoints, add_endpoint, update_endpoint,
     delete_endpoint, toggle_endpoint
 )
+
+# Service name for systemctl commands
+SERVICE_NAME = 'ais-wifi-manager'
+
+# Helper functions for service control
+def is_service_running():
+    """Check if the AIS service is running via systemctl"""
+    try:
+        result = subprocess.run(
+            ['systemctl', 'is-active', SERVICE_NAME],
+            capture_output=True,
+            text=True
+        )
+        return result.stdout.strip() == 'active'
+    except Exception:
+        return False
+
+def get_service_logs(lines=50):
+    """Get service logs from journalctl"""
+    try:
+        result = subprocess.run(
+            ['journalctl', '-u', SERVICE_NAME, '-n', str(lines), '--no-pager'],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            return result.stdout
+        return None
+    except Exception:
+        return None
+
+def control_service(action):
+    """Control the service via systemctl (start/stop/restart)"""
+    try:
+        result = subprocess.run(
+            ['systemctl', action, SERVICE_NAME],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0, result.stdout + result.stderr
+    except Exception as e:
+        return False, str(e)
 
 # ANSI color codes
 class Colors:
@@ -281,42 +323,33 @@ def show_ais_status():
     """Display AIS service status"""
     print("\n" + color_text("--- AIS Service Status ---", Colors.BOLD))
     
-    status = ais_manager.get_status()
+    # Check service status via systemctl
+    running = is_service_running()
     
     # Service status
-    if status['running']:
+    if running:
         status_str = color_text("RUNNING", Colors.GREEN)
     else:
         status_str = color_text("STOPPED", Colors.RED)
     
     print(f"Service:     {status_str}")
-    print(f"Serial Port: {color_text(status['serial_port'], Colors.CYAN)}")
+    print(f"Serial Port: {color_text('/dev/serial0', Colors.CYAN)}")
     
-    # Endpoints
-    endpoints = status.get('endpoints', [])
+    # Endpoints from config file
+    endpoints = get_all_endpoints()
     if endpoints:
         print(f"\n{color_text('Endpoints:', Colors.CYAN)} {len(endpoints)} configured")
         print("-"*80)
-        print(f"{'Name':<25} {'Address':<25} {'Status':<15} {'Enabled':<10}")
+        print(f"{'Name':<25} {'Address':<25} {'Enabled':<10}")
         print("-"*80)
         
         for endpoint in endpoints:
             name = endpoint['name'][:23]
             address = f"{endpoint['ip']}:{endpoint['port']}"
             enabled = endpoint.get('enabled', 'true') == 'true'
-            
-            # Get connection status
-            ep_status = status['endpoint_status'].get(endpoint['id'], {})
-            if not enabled:
-                status_str = color_text("Disabled", Colors.YELLOW)
-            elif ep_status.get('connected'):
-                status_str = color_text("Connected", Colors.GREEN)
-            else:
-                status_str = color_text("Disconnected", Colors.RED)
-            
             enabled_str = color_text("Yes", Colors.GREEN) if enabled else color_text("No", Colors.YELLOW)
             
-            print(f"{name:<25} {address:<25} {status_str:<25} {enabled_str:<20}")
+            print(f"{name:<25} {address:<25} {enabled_str:<20}")
         
         print("-"*80)
     else:
@@ -325,12 +358,12 @@ def show_ais_status():
 def start_ais_service():
     """Start AIS service"""
     print("\n" + color_text("Starting AIS service...", Colors.YELLOW))
-    success, message = ais_manager.start()
+    success, message = control_service('start')
     
     if success:
-        print(color_text(f"✓ {message}", Colors.GREEN))
+        print(color_text("✓ Service started", Colors.GREEN))
     else:
-        print(color_text(f"✗ {message}", Colors.RED))
+        print(color_text(f"✗ Failed to start service: {message}", Colors.RED))
 
 def stop_ais_service():
     """Stop AIS service"""
@@ -340,22 +373,22 @@ def stop_ais_service():
         return
     
     print(color_text("Stopping AIS service...", Colors.YELLOW))
-    success, message = ais_manager.stop()
+    success, message = control_service('stop')
     
     if success:
-        print(color_text(f"✓ {message}", Colors.GREEN))
+        print(color_text("✓ Service stopped", Colors.GREEN))
     else:
-        print(color_text(f"✗ {message}", Colors.RED))
+        print(color_text(f"✗ Failed to stop service: {message}", Colors.RED))
 
 def restart_ais_service():
     """Restart AIS service"""
     print("\n" + color_text("Restarting AIS service...", Colors.YELLOW))
-    success, message = ais_manager.restart()
+    success, message = control_service('restart')
     
     if success:
-        print(color_text(f"✓ {message}", Colors.GREEN))
+        print(color_text("✓ Service restarted", Colors.GREEN))
     else:
-        print(color_text(f"✗ {message}", Colors.RED))
+        print(color_text(f"✗ Failed to restart service: {message}", Colors.RED))
 
 def view_ais_logs():
     """View AIS service logs"""
@@ -367,38 +400,28 @@ def view_ais_logs():
     except ValueError:
         count = 50
     
-    logs = ais_manager.get_logs(count)
+    logs = get_service_logs(count)
     
     if logs:
-        print(f"\n{color_text('Last', Colors.CYAN)} {len(logs)} {color_text('log entries:', Colors.CYAN)}")
+        print(f"\n{color_text('Last', Colors.CYAN)} {count} {color_text('log entries:', Colors.CYAN)}")
         print("-"*80)
-        for log in logs:
-            level = log['level']
-            if level == 'ERROR':
-                level_str = color_text(level, Colors.RED)
-            elif level == 'WARNING':
-                level_str = color_text(level, Colors.YELLOW)
-            else:
-                level_str = color_text(level, Colors.GREEN)
-            
-            print(f"{log['timestamp']} [{level_str}] {log['message']}")
+        print(logs)
         print("-"*80)
     else:
-        print(color_text("No logs available", Colors.YELLOW))
+        print(color_text("No logs available or unable to access journalctl", Colors.YELLOW))
 
 def list_endpoints():
     """List all AIS endpoints"""
     print("\n" + color_text("--- AIS Endpoints ---", Colors.BOLD))
     
     endpoints = get_all_endpoints()
-    status = ais_manager.get_status()
     
     if not endpoints:
         print(color_text("No endpoints configured", Colors.YELLOW))
         return
     
     print("-"*80)
-    print(f"{'ID':<5} {'Name':<20} {'IP Address':<18} {'Port':<8} {'Enabled':<10} {'Status':<15}")
+    print(f"{'ID':<5} {'Name':<20} {'IP Address':<18} {'Port':<8} {'Enabled':<10}")
     print("-"*80)
     
     for endpoint in endpoints:
@@ -407,19 +430,9 @@ def list_endpoints():
         ip = endpoint['ip']
         port = endpoint['port']
         enabled = endpoint.get('enabled', 'true') == 'true'
-        
-        # Get connection status
-        ep_status = status['endpoint_status'].get(ep_id, {})
-        if not enabled:
-            status_str = color_text("Disabled", Colors.YELLOW)
-        elif ep_status.get('connected'):
-            status_str = color_text("Connected", Colors.GREEN)
-        else:
-            status_str = color_text("Disconnected", Colors.RED)
-        
         enabled_str = color_text("Yes", Colors.GREEN) if enabled else color_text("No", Colors.YELLOW)
         
-        print(f"{ep_id:<5} {name:<20} {ip:<18} {port:<8} {enabled_str:<20} {status_str:<25}")
+        print(f"{ep_id:<5} {name:<20} {ip:<18} {port:<8} {enabled_str:<20}")
     
     print("-"*80)
 
@@ -458,9 +471,9 @@ def add_endpoint_cli():
         print(f"Endpoint ID: {endpoint_id}")
         
         # Restart service if running
-        if ais_manager.is_running():
+        if is_service_running():
             print(color_text("Restarting AIS service to apply changes...", Colors.YELLOW))
-            ais_manager.restart()
+            control_service('restart')
     else:
         print(color_text(f"✗ {message}", Colors.RED))
 
@@ -537,9 +550,9 @@ def edit_endpoint_cli():
         print(color_text(f"✓ {message}", Colors.GREEN))
         
         # Restart service if running
-        if ais_manager.is_running():
+        if is_service_running():
             print(color_text("Restarting AIS service to apply changes...", Colors.YELLOW))
-            ais_manager.restart()
+            control_service('restart')
     else:
         print(color_text(f"✗ {message}", Colors.RED))
 
@@ -586,9 +599,9 @@ def delete_endpoint_cli():
         print(color_text(f"✓ {message}", Colors.GREEN))
         
         # Restart service if running
-        if ais_manager.is_running():
+        if is_service_running():
             print(color_text("Restarting AIS service to apply changes...", Colors.YELLOW))
-            ais_manager.restart()
+            control_service('restart')
     else:
         print(color_text(f"✗ {message}", Colors.RED))
 
@@ -635,9 +648,9 @@ def toggle_endpoint_cli():
         print(color_text(f"✓ {message}", Colors.GREEN))
         
         # Restart service if running
-        if ais_manager.is_running():
+        if is_service_running():
             print(color_text("Restarting AIS service to apply changes...", Colors.YELLOW))
-            ais_manager.restart()
+            control_service('restart')
     else:
         print(color_text(f"✗ {message}", Colors.RED))
 
@@ -664,23 +677,21 @@ def show_complete_status():
     
     # AIS Status
     print("\n" + color_text("AIS Service:", Colors.CYAN))
-    status = ais_manager.get_status()
+    running = is_service_running()
     
-    if status['running']:
+    if running:
         print(f"  Status: {color_text('RUNNING', Colors.GREEN)}")
     else:
         print(f"  Status: {color_text('STOPPED', Colors.RED)}")
     
-    print(f"  Serial Port: {status['serial_port']}")
+    print(f"  Serial Port: /dev/serial0")
     
     # Endpoints
-    endpoints = status.get('endpoints', [])
+    endpoints = get_all_endpoints()
     if endpoints:
         print(f"\n  {color_text('Endpoints:', Colors.CYAN)} {len(endpoints)} configured")
         enabled_count = sum(1 for e in endpoints if e.get('enabled', 'true') == 'true')
-        connected_count = sum(1 for e in endpoints if status['endpoint_status'].get(e['id'], {}).get('connected', False))
         print(f"    Enabled:   {enabled_count}/{len(endpoints)}")
-        print(f"    Connected: {color_text(str(connected_count), Colors.GREEN if connected_count > 0 else Colors.RED)}/{enabled_count}")
     else:
         print(f"  {color_text('No endpoints configured', Colors.YELLOW)}")
     
