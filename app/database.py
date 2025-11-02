@@ -5,7 +5,20 @@ import sqlite3
 from datetime import datetime
 import os
 
-DB_PATH = 'wifi_manager.db'
+# Determine database file location
+# Priority: 1) Installed location, 2) Current directory
+def get_db_path():
+    """Get the correct database file path based on installation"""
+    installed_path = '/opt/ais-wifi-manager/wifi_manager.db'
+    
+    # Check if running from installed location
+    if os.path.exists('/opt/ais-wifi-manager'):
+        return installed_path
+    
+    # Fallback to current directory for development
+    return 'wifi_manager.db'
+
+DB_PATH = get_db_path()
 
 def init_db():
     """Initialize the database with required tables"""
