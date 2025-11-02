@@ -79,6 +79,9 @@ mkdir -p $INSTALL_DIR
 cp -r ./* $INSTALL_DIR/
 cd $INSTALL_DIR
 
+# Fix line endings (convert CRLF to LF for Unix compatibility)
+sed -i 's/\r$//' $INSTALL_DIR/cli/ais_wifi_cli.py
+
 # Make CLI executable
 chmod +x $INSTALL_DIR/cli/ais_wifi_cli.py
 
