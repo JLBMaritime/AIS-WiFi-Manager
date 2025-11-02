@@ -7,10 +7,20 @@ import os
 import shutil
 from datetime import datetime
 
-CONFIG_FILE = '/opt/ais-wifi-manager/ais_config.conf'
-# Fallback for development/testing
-if not os.path.exists('/opt/ais-wifi-manager'):
-    CONFIG_FILE = 'ais_config.conf'
+# Determine config file location
+# Priority: 1) Installed location, 2) Current directory
+def get_config_path():
+    """Get the correct config file path based on installation"""
+    installed_path = '/opt/ais-wifi-manager/ais_config.conf'
+    
+    # Check if running from installed location
+    if os.path.exists(installed_path):
+        return installed_path
+    
+    # Fallback to current directory for development
+    return 'ais_config.conf'
+
+CONFIG_FILE = get_config_path()
 
 def load_ais_config():
     """Load AIS configuration from file"""
