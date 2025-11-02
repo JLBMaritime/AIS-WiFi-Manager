@@ -40,6 +40,7 @@ rm -f /etc/systemd/system/${SERVICE_NAME}.service
 systemctl daemon-reload
 
 echo -e "${GREEN}Step 3: Removing installation directory...${NC}"
+rm -f /usr/local/bin/ais-wifi-cli
 rm -rf $INSTALL_DIR
 
 echo -e "${GREEN}Step 4: Cleaning up hotspot configuration...${NC}"

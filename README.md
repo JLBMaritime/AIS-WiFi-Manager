@@ -82,7 +82,11 @@ sudo reboot
 
 ## Usage
 
-### WiFi Manager
+### Web Interface
+
+Access the web interface by connecting to the hotspot and navigating to http://AIS.local or http://192.168.4.1
+
+#### WiFi Manager
 
 1. **Scan Networks**: Click "Scan" to discover available WiFi networks
 2. **Connect**: Click "Connect" on a network, enter password if required
@@ -110,6 +114,72 @@ sudo reboot
 1. Navigate to "AIS Logs" to view real-time service logs
 2. Monitor connection status for all endpoints
 3. Logs auto-refresh every 5 seconds
+
+### Command Line Interface (CLI)
+
+The AIS-WiFi Manager includes a comprehensive CLI tool for terminal/SSH access. After installation, the CLI is available system-wide as `ais-wifi-cli`.
+
+#### Accessing the CLI
+
+```bash
+sudo ais-wifi-cli
+```
+
+#### CLI Features
+
+The CLI provides a menu-driven interface with color-coded output for easy navigation:
+
+**WiFi Management (Options 1-7):**
+1. Scan for networks - Discover available WiFi networks with signal strength
+2. Connect to network - Connect to a network interactively
+3. Show current connection - Display connected network and IP
+4. List saved networks - View all saved network configurations
+5. Forget network - Remove a saved network
+6. Run network diagnostics - View interface status, gateway, DNS
+7. Run ping test - Test connectivity to a host
+
+**AIS Management (Options 8-17):**
+8. AIS service status - View service and endpoint status
+9. Start AIS service - Start the AIS forwarding service
+10. Stop AIS service - Stop the AIS forwarding service
+11. Restart AIS service - Restart the service
+12. View AIS logs - Display service logs (configurable count)
+13. List endpoints - Show all configured endpoints with status
+14. Add endpoint - Interactively add a new endpoint
+15. Edit endpoint - Modify an existing endpoint
+16. Delete endpoint - Remove an endpoint
+17. Enable/disable endpoint - Toggle endpoint without deleting
+
+**System (Options 18-19):**
+18. Show complete system status - Comprehensive overview
+19. Exit - Close the CLI
+
+#### CLI Example Usage
+
+```bash
+# Start the CLI
+sudo ais-wifi-cli
+
+# The CLI will display a menu - choose options by number
+# For example, to add an AIS endpoint:
+# 1. Select option 14 (Add endpoint)
+# 2. Enter endpoint name: "Chart Plotter"
+# 3. Enter IP address: "192.168.1.100"
+# 4. Enter port: "10110"
+# 5. Enable endpoint: Y
+
+# To view status:
+# Select option 18 (Show complete system status)
+```
+
+#### CLI Benefits
+
+- ✅ **No browser needed** - Perfect for SSH access
+- ✅ **Color-coded output** - Easy to read status indicators
+- ✅ **Interactive prompts** - Guides you through each operation
+- ✅ **Full functionality** - All web interface features available
+- ✅ **Confirmation prompts** - Prevents accidental deletions
+- ✅ **Real-time feedback** - Immediate operation results
 
 ## Configuration
 

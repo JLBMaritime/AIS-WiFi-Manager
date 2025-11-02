@@ -79,6 +79,12 @@ mkdir -p $INSTALL_DIR
 cp -r ./* $INSTALL_DIR/
 cd $INSTALL_DIR
 
+# Make CLI executable
+chmod +x $INSTALL_DIR/cli/ais_wifi_cli.py
+
+# Create symlink for easy CLI access
+ln -sf $INSTALL_DIR/cli/ais_wifi_cli.py /usr/local/bin/ais-wifi-cli
+
 echo -e "${GREEN}Step 6: Installing Python dependencies...${NC}"
 pip3 install --break-system-packages -r requirements.txt || pip3 install -r requirements.txt
 
