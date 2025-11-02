@@ -166,25 +166,66 @@ class AISManager:
         
         while self.running:
             try:
-                # Open serial connection
-                with serial.Serial(self.serial_port, baudrate=38400, timeout=2) as ser:
+                # Open serial connection with appropriate settings for NMEA
+                with serial.Serial(
+                    self.serial_port, 
+                    baudrate=38400, 
+                    timeout=10,  # Increased timeout
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    xonxoff=False,
+                    rtscts=False,
+                    dsrdtr=False
+                ) as ser:
                     self.add_log("INFO", f"Connected to AIS serial port: {self.serial_port}")
+                    
+                    # Flush any existing data in buffers
+                    ser.reset_input_buffer()
+                    ser.reset_output_buffer()
+                    
+                    consecutive_errors = 0
+                    lines_read = 0
                     
                     while self.running:
                         try:
-                            # Read line from serial
-                            line = ser.readline()
-                            
-                            if line:
-                                # Forward to all enabled endpoints
-                                for endpoint in self.endpoints:
-                                    if endpoint['enabled']:
-                                        self._send_to_endpoint(endpoint, line)
+                            # Check if data is available
+                            if ser.in_waiting > 0:
+                                # Read line from serial (NMEA sentences end with \r\n)
+                                line = ser.readline()
+                                
+                                if line:
+                                    lines_read += 1
+                                    consecutive_errors = 0
+                                    
+                                    # Log first successful read
+                                    if lines_read == 1:
+                                        self.add_log("INFO", f"Receiving AIS data (first sentence: {line.decode('ascii', errors='ignore').strip()[:50]}...)")
+                                    
+                                    # Forward to all enabled endpoints
+                                    for endpoint in self.endpoints:
+                                        if endpoint['enabled']:
+                                            self._send_to_endpoint(endpoint, line)
+                                else:
+                                    # Empty read despite data available
+                                    consecutive_errors += 1
+                                    if consecutive_errors > 10:
+                                        self.add_log("WARNING", "Multiple empty reads, reconnecting...")
+                                        break
+                            else:
+                                # No data available, short sleep
+                                time.sleep(0.1)
                                         
                         except serial.SerialException as e:
                             self.add_log("ERROR", f"Serial read error: {e}")
-                            time.sleep(5)
-                            break
+                            consecutive_errors += 1
+                            if consecutive_errors > 5:
+                                break
+                            time.sleep(2)
+                        except UnicodeDecodeError as e:
+                            # Skip bad data
+                            self.add_log("WARNING", f"Bad data received, skipping")
+                            continue
                             
             except serial.SerialException as e:
                 self.add_log("ERROR", f"Failed to connect to serial port {self.serial_port}: {e}")
@@ -192,6 +233,8 @@ class AISManager:
                 
             except Exception as e:
                 self.add_log("ERROR", f"Unexpected error in AIS forwarding: {e}")
+                import traceback
+                self.add_log("ERROR", f"Traceback: {traceback.format_exc()}")
                 time.sleep(10)
         
         self.add_log("INFO", "AIS forwarding loop ended")
