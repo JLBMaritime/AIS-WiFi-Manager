@@ -7,7 +7,8 @@ import sys
 import os
 
 # Add parent directory to path to import app modules
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Use realpath to properly resolve symlinks
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 from app.wifi_manager import (
     scan_networks, get_current_connection, get_connection_ip,
