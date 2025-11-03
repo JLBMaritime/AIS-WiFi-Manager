@@ -59,6 +59,11 @@ AIS-WiFi Manager merges two essential functionalities into a single, efficient a
 
 ## Quick Installation
 
+Note: If you need to install git use this:
+```bash
+sudo apt-get install git
+```
+
 1. Clone the repository:
 ```bash
 git clone https://github.com/JLBMaritime/AIS-WiFi-Manager.git
@@ -392,3 +397,4 @@ For issues, questions, or contributions, please open an issue on GitHub.
 **Developed for JLBMaritime AIS ADS-B Project**
 
 **Raspberry Pi 4B | 64-bit Raspberry Pi OS (Bookworm) | Python 3 | Flask**
+
