@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JLBMaritime Wi-Fi Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="JLBMaritime Logo" class="logo">
+            <h1>Wi-Fi Manager</h1>
+            <button class="btn btn-logout" onclick="logout()">Logout</button>
+        </div>
+    </header>
+
+    <nav class="tabs">
+        <button class="tab-button active" onclick="openTab('dashboard')">Dashboard</button>
+        <button class="tab-button" onclick="openTab('wifi')">Wi-Fi Manager</button>
+        <button class="tab-button" onclick="openTab('adsb')">ADS-B Configuration</button>
+        <button class="tab-button" onclick="openTab('logs')">Logs & Troubleshooting</button>
+        <button class="tab-button" onclick="openTab('settings')">Settings</button>
+    </nav>
+
+    <main class="container">
+        <!-- Dashboard Tab -->
+        <div id="dashboard" class="tab-content active">
+            <h2>System Dashboard</h2>
+            
+            <div class="card">
+                <h3>ADS-B Server Status</h3>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span class="label">Status:</span>
+                        <span id="adsb-status" class="badge">Loading...</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">Uptime:</span>
+                        <span id="adsb-uptime">Loading...</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Wi-Fi Connection</h3>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span class="label">Connected Network:</span>
+                        <span id="wifi-ssid">Loading...</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">IP Address:</span>
+                        <span id="wifi-ip">Loading...</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">Signal Strength:</span>
+                        <span id="wifi-signal">Loading...</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>System Information</h3>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span class="label">Hostname:</span>
+                        <span id="system-hostname">Loading...</span>
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn btn-primary" onclick="refreshDashboard()">Refresh Status</button>
+        </div>
+
+        <!-- WiFi Manager Tab -->
+        <div id="wifi" class="tab-content">
+            <h2>Wi-Fi Manager</h2>
+            
+            <div class="card">
+                <h3>Current Connection</h3>
+                <div id="current-network-info">
+                    <p>Loading...</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Available Networks</h3>
+                <button class="btn btn-primary" onclick="scanNetworks()">Scan Networks</button>
+                <div id="available-networks" class="network-list">
+                    <p>Click "Scan Networks" to find available Wi-Fi networks</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Saved Networks</h3>
+                <div id="saved-networks" class="network-list">
+                    <p>Loading...</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Network Diagnostics</h3>
+                <div class="form-group">
+                    <label for="ping-host">Ping Host:</label>
+                    <input type="text" id="ping-host" value="8.8.8.8" placeholder="8.8.8.8">
+                    <button class="btn btn-secondary" onclick="runPing()">Run Ping Test</button>
+                </div>
+                <div id="ping-results"></div>
+            </div>
+        </div>
+
+        <!-- ADS-B Configuration Tab -->
+        <div id="adsb" class="tab-content">
+            <h2>ADS-B Configuration</h2>
+            
+            <div class="card">
+                <h3>Service Control</h3>
+                <div class="button-group">
+                    <button class="btn btn-success" onclick="controlADSBService('start')">Start Service</button>
+                    <button class="btn btn-danger" onclick="controlADSBService('stop')">Stop Service</button>
+                    <button class="btn btn-primary" onclick="controlADSBService('restart')">Restart Service</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Aircraft Filter</h3>
+                <div class="form-group">
+                    <label>
+                        <input type="radio" name="filter-mode" value="all" onchange="toggleFilterMode()"> All Aircraft
+                    </label>
+                    <label>
+                        <input type="radio" name="filter-mode" value="specific" onchange="toggleFilterMode()"> Specific ICAO IDs
+                    </label>
+                </div>
+                
+                <div id="icao-filter-section" style="display:none;">
+                    <div class="form-group">
+                        <label for="icao-input">ICAO IDs (comma-separated):</label>
+                        <input type="text" id="icao-input" placeholder="A92F2D,A932E4,A9369B,A93A52">
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>TCP Endpoints</h3>
+                <div id="endpoints-list"></div>
+                
+                <h4>Add New Endpoint</h4>
+                <div class="form-group">
+                    <label for="endpoint-ip">IP Address:</label>
+                    <input type="text" id="endpoint-ip" placeholder="192.168.1.100">
+                </div>
+                <div class="form-group">
+                    <label for="endpoint-port">Port:</label>
+                    <input type="number" id="endpoint-port" placeholder="30003">
+                </div>
+                <button class="btn btn-primary" onclick="addEndpoint()">Add Endpoint</button>
+            </div>
+
+            <button class="btn btn-success btn-large" onclick="saveADSBConfig()">Save Configuration</button>
+        </div>
+
+        <!-- Logs & Troubleshooting Tab -->
+        <div id="logs" class="tab-content">
+            <h2>Logs & Troubleshooting</h2>
+            
+            <div class="card">
+                <h3>Log Viewer</h3>
+                <div class="form-group">
+                    <label for="log-filter">Filter Level:</label>
+                    <select id="log-filter">
+                        <option value="all">All</option>
+                        <option value="error">Errors Only</option>
+                        <option value="warning">Warnings</option>
+                        <option value="info">Info</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="refreshLogs()">Refresh Logs</button>
+                    <button class="btn btn-secondary" onclick="downloadLogs()">Download Logs</button>
+                    <button class="btn btn-danger" onclick="clearLogs()">Clear Logs</button>
+                </div>
+                
+                <div id="log-viewer" class="log-container">
+                    <p>Click "Refresh Logs" to view recent log entries</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>System Diagnostics</h3>
+                <button class="btn btn-primary" onclick="runDiagnostics()">Run Diagnostics</button>
+                <div id="diagnostics-output"></div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings" class="tab-content">
+            <h2>Settings</h2>
+            
+            <div class="card">
+                <h3>Change Password</h3>
+                <div class="form-group">
+                    <label for="new-password">New Password:</label>
+                    <input type="password" id="new-password" placeholder="Enter new password">
+                </div>
+                <div class="form-group">
+                    <label for="confirm-password">Confirm Password:</label>
+                    <input type="password" id="confirm-password" placeholder="Confirm new password">
+                </div>
+                <button class="btn btn-primary" onclick="changePassword()">Update Password</button>
+            </div>
+
+            <div class="card">
+                <h3>System Information</h3>
+                <div id="system-info">
+                    <p>Loading system information...</p>
+                </div>
+                <button class="btn btn-secondary" onclick="loadSystemInfo()">Refresh</button>
+            </div>
+
+            <div class="card">
+                <h3>Backup & Restore</h3>
+                <button class="btn btn-primary" onclick="backupConfig()">Download Configuration Backup</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Connect to Network Modal -->
+    <div id="connect-modal" class="modal">
+        <div class="modal-content">
+            <h3>Connect to Network</h3>
+            <p id="connect-ssid"></p>
+            <div class="form-group">
+                <label for="network-password">Password:</label>
+                <input type="password" id="network-password" placeholder="Enter password">
+            </div>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="connectToNetwork()">Connect</button>
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+[Unit]
+Description=ADS-B Wi-Fi Manager Web Interface
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/home/jlbmaritime/AIS-WiFi-Manager/web_interface
+ExecStart=/usr/bin/python3 /home/jlbmaritime/AIS-WiFi-Manager/web_interface/app.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target

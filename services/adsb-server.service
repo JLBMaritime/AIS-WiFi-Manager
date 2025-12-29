@@ -1,0 +1,24 @@
+[Unit]
+Description=ADS-B Server - Data Receiver and Forwarder
+After=network-online.target dump1090-fa.service
+Wants=network-online.target dump1090-fa.service
+Requires=network-online.target
+
+[Service]
+Type=simple
+User=jlbmaritime
+Group=jlbmaritime
+WorkingDirectory=/home/jlbmaritime/AIS-WiFi-Manager
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/bin/python3 /home/jlbmaritime/AIS-WiFi-Manager/adsb_server/adsb_server.py
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

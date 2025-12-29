@@ -1,400 +1,574 @@
-# AIS-WiFi Manager
+# ADS-B Wi-Fi Manager
 
-A unified management system for Raspberry Pi that combines AIS data forwarding with WiFi network management through a web-based interface.
+**JLBMaritime - Integrated ADS-B Data Management System**
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%204B-red)
+A comprehensive solution for Raspberry Pi 4B that combines ADS-B aircraft tracking with a powerful web-based WiFi management interface.
 
-## Overview
+---
 
-AIS-WiFi Manager merges two essential functionalities into a single, efficient application:
-- **AIS Data Forwarding**: Reads AIS data from a dAISy HAT and forwards it to multiple configurable endpoints
-- **WiFi Management**: Web-based interface for managing WiFi connections and network settings
+## 📋 Table of Contents
 
-## Key Features
+- [Overview](#overview)
+- [Features](#features)
+- [System Requirements](#system-requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Web Interface](#web-interface)
+- [Command Line Tools](#command-line-tools)
+- [Troubleshooting](#troubleshooting)
+- [Architecture](#architecture)
+- [License](#license)
 
-### AIS Management
-- **Multiple Endpoints**: Forward AIS data to unlimited destinations simultaneously
-- **Web Configuration**: Add, edit, enable/disable, and delete endpoints through the web interface
-- **Individual Control**: Enable/disable endpoints without deleting configuration
-- **Real-Time Status**: Monitor connection status for each endpoint
-- **Automatic Retry**: 3 retry attempts per endpoint with independent failure handling
-- **Service Control**: Start, stop, and restart AIS forwarding from the web interface
-- **Live Logging**: View AIS service logs in real-time
+---
 
-### WiFi Management
-- **Network Scanning**: Discover and display available WiFi networks with signal strength
-- **Connection Management**: Connect to networks with password support
-- **Saved Networks**: Remember and manage previously connected networks
-- **Network Diagnostics**: Built-in ping tests and network status monitoring
-- **Real-Time Updates**: Live status updates via AJAX polling
+## 🎯 Overview
 
-### System Features
-- **Hotspot Mode**: wlan1 configured as access point (JLBMaritime-AIS), wlan0 for internet
-- **Web Interface**: Intuitive, mobile-responsive interface accessible via hotspot
-- **HTTP Authentication**: Secure access with username/password (JLBMaritime/Admin)
-- **Auto-Start**: Systemd service for automatic startup on boot
-- **Configuration Backup**: Automatic backup before any config changes
+This system provides a complete ADS-B (Automatic Dependent Surveillance-Broadcast) data reception, filtering, and forwarding solution with an integrated WiFi management interface. Perfect for maritime or aviation tracking applications where you need reliable data forwarding and easy network configuration.
 
-## Hardware Requirements
+### What it Does
 
-- Raspberry Pi 4B (2GB RAM or higher)
-- dAISy HAT or compatible AIS receiver
-- Two WiFi interfaces (wlan0 and wlan1)
-  - wlan0: Connect to internet
-  - wlan1: Hotspot for web interface access
-- Micro SD card (16GB or larger recommended)
-- Power supply for Raspberry Pi
-- Antenna suitable for AIS reception
+1. **Receives ADS-B Data**: Captures aircraft tracking data via FlightAware SDR USB dongle
+2. **Filters Aircraft**: Optionally filters by specific ICAO aircraft IDs
+3. **Forwards Data**: Sends filtered data to configured TCP endpoints
+4. **Manages WiFi**: Provides hotspot and web interface for network management
+5. **Centralized Control**: All configuration via responsive web interface
 
-## Software Requirements
+---
 
-- Raspberry Pi OS (64-bit Bookworm)
-- Python 3.9 or higher
-- NetworkManager (nmcli)
-- hostapd
-- dnsmasq
-- avahi-daemon
+## ✨ Features
 
-## Quick Installation
+### ADS-B Server
+- ✅ Receives SBS1 format data from dump1090-fa
+- ✅ Configurable ICAO aircraft filter (specific IDs or all aircraft)
+- ✅ Multiple TCP endpoint forwarding
+- ✅ Automatic reconnection on connection loss
+- ✅ 72-hour automatic log rotation
+- ✅ Runs as systemd service (auto-start on boot)
 
-Note: If you need to install git use this:
-```bash
-sudo apt-get install git
-```
-
-1. Clone the repository:
-```bash
-git clone https://github.com/JLBMaritime/AIS-WiFi-Manager.git
-cd AIS-WiFi-Manager
-```
-
-2. Run the installation script:
-```bash
-sudo bash install.sh
-```
-
-3. Reboot your Raspberry Pi:
-```bash
-sudo reboot
-```
-
-4. After reboot:
-   - Connect to WiFi hotspot: `JLBMaritime-AIS` (password: `Admin123`)
-   - Open browser to: `http://AIS.local` or `http://192.168.4.1`
-   - Login with username: `JLBMaritime`, password: `Admin`
-
-## Usage
+### WiFi Manager
+- ✅ Built-in hotspot (wlan1) for configuration access
+- ✅ Scan and connect to WiFi networks (wlan0)
+- ✅ Save and manage network profiles
+- ✅ Network diagnostics and ping tests
+- ✅ mDNS support (ADS-B.local domain)
 
 ### Web Interface
+- ✅ **Dashboard**: System status overview
+- ✅ **WiFi Manager**: Network configuration
+- ✅ **ADS-B Configuration**: Endpoints and filters
+- ✅ **Logs & Troubleshooting**: Live log viewer
+- ✅ **Settings**: Password, backup/restore
+- ✅ Responsive design (desktop and mobile)
+- ✅ Secure authentication
 
-Access the web interface by connecting to the hotspot and navigating to http://AIS.local or http://192.168.4.1
+---
 
-#### WiFi Manager
+## 🖥️ System Requirements
 
-1. **Scan Networks**: Click "Scan" to discover available WiFi networks
-2. **Connect**: Click "Connect" on a network, enter password if required
-3. **Saved Networks**: View and manage previously connected networks
-4. **Diagnostics**: Run ping tests and view network statistics
+### Hardware
+- **Raspberry Pi 4B** (2GB RAM minimum)
+- **Two WiFi interfaces**: wlan0 and wlan1
+- **FlightAware SDR USB stick** with antenna
+- **MicroSD card** (16GB minimum)
 
-### AIS Configuration
+### Software
+- **OS**: Raspberry Pi OS 64-bit (Bookworm) - Lite or Desktop
+- **Python**: 3.9 or higher (included in OS)
+- **Internet connection**: For initial setup and dump1090-fa installation
 
-1. Navigate to "AIS Configuration" in the main menu
-2. **View Status**: Check if AIS service is running
-3. **Add Endpoint**:
-   - Click "+ Add Endpoint"
-   - Enter name (e.g., "Chart Plotter")
-   - Enter IP address and port
-   - Choose if endpoint should be enabled
-   - Click "Save"
-4. **Manage Endpoints**:
-   - Toggle: Enable/disable without deleting
-   - Edit: Modify endpoint details
-   - Delete: Remove endpoint completely
-5. **Control Service**: Start, stop, or restart AIS forwarding
+---
 
-### AIS Logs
+## 📦 Installation
 
-1. Navigate to "AIS Logs" to view real-time service logs
-2. Monitor connection status for all endpoints
-3. Logs auto-refresh every 5 seconds
+### Quick Install
 
-### Command Line Interface (CLI)
+1. **Download the repository** to your Raspberry Pi:
+   ```bash
+   cd /home/JLBMaritime
+   git clone <repository-url> adsb-wifi-manager
+   cd adsb-wifi-manager
+   ```
 
-The AIS-WiFi Manager includes a comprehensive CLI tool for terminal/SSH access. After installation, the CLI is available system-wide as `ais-wifi-cli`.
+2. **Make installation script executable**:
+   ```bash
+   chmod +x install.sh
+   ```
 
-#### Accessing the CLI
+3. **Run installation** (requires sudo):
+   ```bash
+   sudo ./install.sh
+   ```
+
+4. **Reboot the system**:
+   ```bash
+   sudo reboot
+   ```
+
+### What Gets Installed
+
+The installation script will:
+- Update system packages
+- Install Python3 and required libraries (Flask)
+- Install and configure dump1090-fa for ADS-B reception
+- Install hostapd and dnsmasq for WiFi hotspot
+- Configure Avahi for mDNS (ADS-B.local)
+- Set up systemd services for auto-start
+- Configure wlan1 as hotspot (192.168.4.1)
+- Configure wlan0 for internet connectivity
+- Set hostname to "ADS-B"
+
+### Installation Time
+Approximately **15-30 minutes** depending on internet speed.
+
+---
+
+## ⚙️ Configuration
+
+### Default Credentials
+
+**Hotspot WiFi**:
+- **SSID**: `JLBMaritime-ADSB`
+- **Password**: `Admin123`
+
+**Web Interface**:
+- **URL**: `http://ADS-B.local:5000` or `http://192.168.4.1:5000`
+- **Username**: `JLBMaritime`
+- **Password**: `Admin`
+
+### Initial Setup Steps
+
+1. **Connect to Hotspot**:
+   - Look for WiFi network "JLBMaritime-ADSB"
+   - Enter password: `Admin123`
+
+2. **Access Web Interface**:
+   - Open browser to `http://ADS-B.local`
+   - Login with JLBMaritime / Admin
+
+3. **Configure Internet WiFi**:
+   - Go to "WiFi Manager" tab
+   - Click "Scan Networks"
+   - Connect to your internet WiFi
+
+4. **Configure ADS-B**:
+   - Go to "ADS-B Configuration" tab
+   - Set filter mode (All or Specific ICAOs)
+   - Add TCP endpoints (IP:Port)
+   - Click "Save Configuration"
+
+5. **Add Logo** (Optional):
+   - Place `logo.png` in `/home/JLBMaritime/adsb-wifi-manager/web_interface/static/`
+
+---
+
+## 🌐 Web Interface
+
+### Dashboard Tab
+Monitor system status in real-time:
+- ADS-B server status (Running/Stopped, uptime)
+- WiFi connection info (SSID, IP, signal strength)
+- System hostname
+
+### WiFi Manager Tab
+Manage network connections:
+- View current WiFi connection
+- Scan for available networks
+- Connect to new networks
+- Manage saved networks (connect/forget)
+- Run network diagnostics
+- Ping test to verify connectivity
+
+### ADS-B Configuration Tab
+Configure ADS-B data forwarding:
+- **Service Control**: Start/Stop/Restart ADS-B server
+- **Aircraft Filter**: 
+  - All aircraft mode
+  - Specific ICAO IDs (comma-separated)
+  - Default ICAOs: A92F2D, A932E4, A9369B, A93A52
+- **TCP Endpoints**:
+  - Add multiple IP:Port destinations
+  - Test connection to each endpoint
+  - Remove endpoints
+
+### Logs & Troubleshooting Tab
+Monitor and diagnose issues:
+- View logs with filtering (All, Errors, Warnings, Info)
+- Manual refresh
+- Download logs
+- Clear logs
+- Run system diagnostics
+
+### Settings Tab
+System configuration:
+- Change web interface password
+- View system information
+- Backup/restore configuration files
+
+---
+
+## 🔧 Command Line Tools
+
+### ADS-B Server CLI
+
+Located at: `/home/JLBMaritime/adsb-wifi-manager/adsb_server/adsb_cli.py`
+
+**Commands**:
+```bash
+# Start the ADS-B server
+sudo python3 adsb_cli.py start
+
+# Stop the ADS-B server
+sudo python3 adsb_cli.py stop
+
+# Restart the ADS-B server
+sudo python3 adsb_cli.py restart
+
+# View service status
+python3 adsb_cli.py status
+
+# View current configuration
+python3 adsb_cli.py config
+
+# View recent logs
+python3 adsb_cli.py logs
+
+# Show help
+python3 adsb_cli.py help
+```
+
+### Systemd Service Management
 
 ```bash
-sudo ais-wifi-cli
+# Check ADS-B server status
+sudo systemctl status adsb-server
+
+# Check Web manager status
+sudo systemctl status web-manager
+
+# View logs
+sudo journalctl -u adsb-server -f
+sudo journalctl -u web-manager -f
+
+# Restart services
+sudo systemctl restart adsb-server
+sudo systemctl restart web-manager
 ```
 
-#### CLI Features
+---
 
-The CLI provides a menu-driven interface with color-coded output for easy navigation:
+## 🔍 Troubleshooting
 
-**WiFi Management (Options 1-7):**
-1. Scan for networks - Discover available WiFi networks with signal strength
-2. Connect to network - Connect to a network interactively
-3. Show current connection - Display connected network and IP
-4. List saved networks - View all saved network configurations
-5. Forget network - Remove a saved network
-6. Run network diagnostics - View interface status, gateway, DNS
-7. Run ping test - Test connectivity to a host
+### WiFi Hotspot Not Starting
 
-**AIS Management (Options 8-17):**
-8. AIS service status - View service and endpoint status
-9. Start AIS service - Start the AIS forwarding service
-10. Stop AIS service - Stop the AIS forwarding service
-11. Restart AIS service - Restart the service
-12. View AIS logs - Display service logs (configurable count)
-13. List endpoints - Show all configured endpoints with status
-14. Add endpoint - Interactively add a new endpoint
-15. Edit endpoint - Modify an existing endpoint
-16. Delete endpoint - Remove an endpoint
-17. Enable/disable endpoint - Toggle endpoint without deleting
+**Problem**: Unable to connect to JLBMaritime-ADSB hotspot
 
-**System (Options 18-19):**
-18. Show complete system status - Comprehensive overview
-19. Exit - Close the CLI
-
-#### CLI Example Usage
-
+**Solutions**:
 ```bash
-# Start the CLI
-sudo ais-wifi-cli
+# Check if wlan1 is available
+iwconfig
 
-# The CLI will display a menu - choose options by number
-# For example, to add an AIS endpoint:
-# 1. Select option 14 (Add endpoint)
-# 2. Enter endpoint name: "Chart Plotter"
-# 3. Enter IP address: "192.168.1.100"
-# 4. Enter port: "10110"
-# 5. Enable endpoint: Y
-
-# To view status:
-# Select option 18 (Show complete system status)
-```
-
-#### CLI Benefits
-
-- ✅ **No browser needed** - Perfect for SSH access
-- ✅ **Color-coded output** - Easy to read status indicators
-- ✅ **Interactive prompts** - Guides you through each operation
-- ✅ **Full functionality** - All web interface features available
-- ✅ **Confirmation prompts** - Prevents accidental deletions
-- ✅ **Real-time feedback** - Immediate operation results
-
-## Configuration
-
-### Default Hotspot Settings
-
-- **SSID**: JLBMaritime-AIS
-- **Password**: Admin123
-- **IP Address**: 192.168.4.1
-- **DHCP Range**: 192.168.4.2 - 192.168.4.20
-
-### Default Login Credentials
-
-- **Username**: JLBMaritime
-- **Password**: Admin
-
-### AIS Configuration
-
-The serial port is fixed at `/dev/serial0` and cannot be edited via the web interface for security.
-
-Endpoints are configured through the web interface with:
-- **Name**: User-friendly identifier
-- **IP Address**: Target device IP
-- **Port**: Target port number
-- **Enabled**: Whether endpoint is active
-
-## Project Structure
-
-```
-AIS-WiFi-Manager/
-├── README.md                      # This file
-├── LICENSE                        # MIT License
-├── .gitignore                     # Git ignore patterns
-├── requirements.txt               # Python dependencies
-├── install.sh                     # Installation script
-├── uninstall.sh                   # Uninstallation script
-├── run.py                         # Application entry point
-├── ais_config.conf                # AIS configuration
-├── logo.png                       # JLBMaritime logo
-├── app/
-│   ├── __init__.py               # Flask initialization
-│   ├── routes.py                 # All API routes
-│   ├── wifi_manager.py           # WiFi operations (wlan0)
-│   ├── ais_manager.py            # AIS multi-endpoint manager
-│   ├── ais_config_manager.py     # Config backup & management
-│   ├── network_diagnostics.py    # Network diagnostics
-│   ├── database.py               # SQLite database
-│   ├── templates/
-│   │   ├── base.html             # Base template
-│   │   ├── index.html            # WiFi Manager page
-│   │   ├── ais_config.html       # AIS Configuration page
-│   │   └── ais_logs.html         # AIS Logs viewer
-│   └── static/
-│       ├── css/style.css         # Unified styling
-│       ├── js/app.js             # WiFi functionality
-│       ├── js/ais.js             # AIS functionality
-│       └── logo.png              # Logo
-├── service/
-│   └── ais-wifi-manager.service  # Systemd service
-├── examples/
-│   └── ais_config.conf.example   # Example configuration
-└── docs/
-    └── (documentation files)
-```
-
-## API Documentation
-
-### WiFi Endpoints
-
-- `GET /api/scan` - Scan for networks
-- `POST /api/rescan` - Trigger new scan
-- `GET /api/current` - Get current connection
-- `GET /api/saved` - Get saved networks
-- `POST /api/connect` - Connect to network
-- `POST /api/forget` - Forget network
-- `POST /api/ping` - Run ping test
-- `GET /api/diagnostics` - Get network diagnostics
-
-### AIS Endpoints
-
-- `GET /api/ais/status` - Get service status
-- `POST /api/ais/start` - Start service
-- `POST /api/ais/stop` - Stop service
-- `POST /api/ais/restart` - Restart service
-- `GET /api/ais/logs` - Get service logs
-- `GET /api/ais/endpoints` - List all endpoints
-- `POST /api/ais/endpoints` - Add endpoint
-- `PUT /api/ais/endpoints/<id>` - Update endpoint
-- `DELETE /api/ais/endpoints/<id>` - Delete endpoint
-- `POST /api/ais/endpoints/<id>/toggle` - Toggle endpoint
-
-## Service Management
-
-### Check Status
-```bash
-sudo systemctl status ais-wifi-manager
-```
-
-### Start/Stop/Restart
-```bash
-sudo systemctl start ais-wifi-manager
-sudo systemctl stop ais-wifi-manager
-sudo systemctl restart ais-wifi-manager
-```
-
-### View Logs
-```bash
-sudo journalctl -u ais-wifi-manager -f
-```
-
-### Enable/Disable Auto-Start
-```bash
-sudo systemctl enable ais-wifi-manager
-sudo systemctl disable ais-wifi-manager
-```
-
-## Troubleshooting
-
-### Hotspot Not Appearing
-
-1. Check hostapd status:
-```bash
-sudo systemctl status hostapd
-```
-
-2. Verify wlan1 interface:
-```bash
-ip addr show wlan1
-```
-
-3. Restart services:
-```bash
+# Restart hotspot services
 sudo systemctl restart hostapd
 sudo systemctl restart dnsmasq
+
+# Check service status
+sudo systemctl status hostapd
+sudo systemctl status dnsmasq
+
+# Verify wlan1 IP
+ip addr show wlan1
 ```
 
 ### Cannot Access Web Interface
 
-1. Ensure connected to hotspot (JLBMaritime-AIS)
-2. Try IP address: `http://192.168.4.1`
-3. Check if service is running:
+**Problem**: Browser cannot reach ADS-B.local
+
+**Solutions**:
+1. Try direct IP: `http://192.168.4.1`
+2. Ensure connected to JLBMaritime-ADSB hotspot
+3. Clear browser cache
+4. Check web service:
+   ```bash
+   sudo systemctl status web-manager
+   sudo systemctl restart web-manager
+   ```
+
+### ADS-B Server Not Receiving Data
+
+**Problem**: No aircraft data being received
+
+**Solutions**:
 ```bash
-sudo systemctl status ais-wifi-manager
+# Check dump1090-fa is running
+sudo systemctl status dump1090-fa
+sudo systemctl restart dump1090-fa
+
+# Verify SDR dongle is connected
+lsusb | grep -i rtl
+
+# Check ADS-B server logs
+python3 /home/JLBMaritime/adsb-wifi-manager/adsb_server/adsb_cli.py logs
+
+# Test connection to dump1090-fa
+telnet 127.0.0.1 30005
 ```
 
-### AIS Not Forwarding Data
+### WiFi Connection Issues (wlan0)
 
-1. Check serial port connection
-2. Verify endpoints are enabled
-3. View logs for errors:
+**Problem**: Cannot connect to internet WiFi
+
+**Solutions**:
 ```bash
-sudo journalctl -u ais-wifi-manager -n 50
+# Check wlan0 status
+iwconfig wlan0
+
+# Scan for networks
+sudo iwlist wlan0 scan
+
+# Check WPA supplicant
+wpa_cli -i wlan0 status
+
+# Reconnect via CLI
+sudo wpa_cli -i wlan0 reconfigure
 ```
 
-## Security Considerations
+### Performance Issues
 
-- Change default credentials before deployment
-- Use HTTPS for production (requires SSL certificate)
-- Limit hotspot access to trusted devices
-- Consider MAC address filtering
-- Keep system packages updated
-- Review and restrict API access if needed
+**Problem**: System running slowly
 
-## Uninstallation
-
-To remove AIS-WiFi Manager:
-
+**Solutions**:
 ```bash
-cd AIS-WiFi-Manager
-sudo bash uninstall.sh
+# Check CPU/Memory usage
+htop
+
+# Check disk space
+df -h
+
+# Reduce log size
+sudo truncate -s 0 /home/JLBMaritime/adsb-wifi-manager/logs/adsb_server.log
+
+# Restart services
+sudo systemctl restart adsb-server web-manager
 ```
 
-## Contributing
+### Port 80 Conflict (Lighttpd)
 
-Contributions are welcome! Please:
+**Problem**: Web interface shows "Port 80 is in use" or 403 Forbidden
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+**Cause**: dump1090-fa installs lighttpd which uses ports 80 and 8080
 
-## License
+**Solution**: The web interface runs on port 5000 by default to avoid this conflict.
+- Access at: `http://192.168.4.1:5000`
+- dump1090 SkyAware available at: `http://192.168.4.1:8080`
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+### NetworkManager Managing wlan1 (MOST COMMON ISSUE)
 
-## Support
+**Problem**: Hotspot appears briefly then disappears, or wlan1 shows as "disconnected" in NetworkManager
 
-For issues, questions, or contributions, please open an issue on GitHub.
+**Cause**: NetworkManager is managing wlan1 and preventing hostapd from using it as an access point
 
-## Acknowledgments
+**Solution**:
+```bash
+# Create NetworkManager unmanage rule
+sudo mkdir -p /etc/NetworkManager/conf.d
+sudo tee /etc/NetworkManager/conf.d/unmanage-wlan1.conf > /dev/null <<EOF
+[keyfile]
+unmanaged-devices=interface-name:wlan1
+EOF
 
-- Original AIS Server project for AIS data forwarding concept
-- Original Hotspot WiFi Manager for network management interface
-- dAISy HAT project for affordable AIS reception
-- Raspberry Pi Foundation for excellent single-board computers
+# Restart NetworkManager
+sudo systemctl restart NetworkManager
 
-## Changelog
+# Reconfigure wlan1
+sudo ip link set wlan1 down
+sudo ip link set wlan1 up
+sudo ip addr add 192.168.4.1/24 dev wlan1
 
-### Version 1.0.0 (Initial Release)
-- Unified AIS forwarding and WiFi management
-- Multi-endpoint AIS data forwarding
-- Web-based endpoint configuration
-- Real-time status monitoring
-- Configuration backup system
-- Auto-start systemd service
-- Mobile-responsive design
-- Comprehensive documentation
+# Restart hostapd
+sudo systemctl restart hostapd
+
+# Verify wlan1 is in AP mode
+iw dev wlan1 info  # Should show "type AP"
+```
+
+### wlan1 Keeps Connecting as Client
+
+**Problem**: Hotspot not visible, wlan1 connects to saved WiFi network
+
+**Cause**: wpa_supplicant auto-connects wlan1 to saved networks
+
+**Solution**:
+```bash
+# Disconnect wlan1 from client networks
+sudo wpa_cli -i wlan1 disconnect
+sudo ip addr flush dev wlan1
+
+# Configure wlan1 as hotspot
+sudo ip link set wlan1 down
+sudo ip link set wlan1 up
+sudo ip addr add 192.168.4.1/24 dev wlan1
+
+# Restart hostapd
+sudo systemctl restart hostapd
+```
 
 ---
 
-**Developed for JLBMaritime AIS ADS-B Project**
+## 🏗️ Architecture
 
-**Raspberry Pi 4B | 64-bit Raspberry Pi OS (Bookworm) | Python 3 | Flask**
+### System Components
 
+```
+┌─────────────────────────────────────────────┐
+│          Raspberry Pi 4B (ADS-B)            │
+├─────────────────────────────────────────────┤
+│                                             │
+│  ┌─────────────┐         ┌──────────────┐  │
+│  │ FlightAware │ USB     │  dump1090-fa │  │
+│  │  SDR Stick  ├────────▶│  (Decoder)   │  │
+│  └─────────────┘         └──────┬───────┘  │
+│                                 │ SBS1      │
+│                                 ▼           │
+│                        ┌────────────────┐   │
+│                        │  ADS-B Server  │   │
+│                        │   (Python)     │   │
+│                        │  - Filter ICAO │   │
+│                        │  - Forward TCP │   │
+│                        └───────┬────────┘   │
+│                                │            │
+│                                ▼            │
+│                        TCP Endpoints        │
+│                                             │
+│  ┌─────────────────────────────────────┐   │
+│  │       Web Interface (Flask)         │   │
+│  │  - Dashboard                        │   │
+│  │  - WiFi Manager                     │   │
+│  │  - ADS-B Config                     │   │
+│  │  - Logs                             │   │
+│  │  - Settings                         │   │
+│  └──────────┬──────────────────────────┘   │
+│             │                               │
+│  ┌──────────▼──────────┐                   │
+│  │   WiFi Hotspot      │  wlan1            │
+│  │   (hostapd/dnsmasq) │  192.168.4.1      │
+│  │   JLBMaritime-ADSB  │  ADS-B.local      │
+│  └─────────────────────┘                   │
+│                                             │
+│  ┌─────────────────────┐                   │
+│  │  Internet WiFi      │  wlan0            │
+│  │  (wpa_supplicant)   │  DHCP             │
+│  └─────────────────────┘                   │
+│                                             │
+└─────────────────────────────────────────────┘
+```
+
+### File Structure
+
+```
+/home/JLBMaritime/adsb-wifi-manager/
+├── adsb_server/
+│   ├── adsb_server.py          # Main ADS-B server application
+│   └── adsb_cli.py              # Command-line interface
+├── wifi_manager/
+│   └── wifi_controller.py       # WiFi management backend
+├── web_interface/
+│   ├── app.py                   # Flask web application
+│   ├── templates/
+│   │   ├── index.html           # Main dashboard
+│   │   └── login.html           # Login page
+│   └── static/
+│       ├── css/style.css        # Stylesheet
+│       ├── js/main.js           # Frontend JavaScript
+│       └── logo.png             # JLBMaritime logo
+├── config/
+│   ├── adsb_server_config.conf  # ADS-B configuration
+│   └── web_config.conf          # Web interface config
+├── services/
+│   ├── adsb-server.service      # ADS-B systemd service
+│   └── web-manager.service      # Web interface service
+├── logs/
+│   └── adsb_server.log          # Application logs
+├── install.sh                   # Installation script
+└── README.md                    # This file
+```
+
+---
+
+## 📝 Configuration Files
+
+### ADS-B Server Config
+**Location**: `/home/JLBMaritime/adsb-wifi-manager/config/adsb_server_config.conf`
+
+```ini
+[Dump1090]
+host = 127.0.0.1
+port = 30005
+
+[Filter]
+mode = specific
+icao_list = A92F2D,A932E4,A9369B,A93A52
+
+[Endpoints]
+count = 2
+endpoint_0_ip = 192.168.1.100
+endpoint_0_port = 30003
+endpoint_1_ip = 10.0.0.50
+endpoint_1_port = 30003
+```
+
+### Web Interface Config
+**Location**: `/home/JLBMaritime/adsb-wifi-manager/config/web_config.conf`
+
+```ini
+[Auth]
+username = JLBMaritime
+password = Admin
+```
+
+---
+
+## 🔒 Security Considerations
+
+1. **Change Default Passwords**: Update both hotspot and web interface passwords after installation
+2. **Network Isolation**: The hotspot (wlan1) is isolated from internet WiFi (wlan0) by default
+3. **Firewall**: Consider adding iptables rules for additional security
+4. **HTTPS**: For production use, consider adding SSL/TLS certificates
+5. **Access Control**: Limit physical access to the Raspberry Pi
+
+---
+
+## 🤝 Support & Contributing
+
+### Getting Help
+- Check the Troubleshooting section above
+- Review application logs
+- Check systemd service status
+
+### Reporting Issues
+When reporting issues, include:
+- Raspberry Pi model and OS version
+- Output of `systemctl status adsb-server web-manager`
+- Relevant log entries
+- Steps to reproduce the problem
+
+---
+
+## 📄 License
+
+This project is developed for JLBMaritime. All rights reserved.
+
+---
+
+## 🙏 Acknowledgments
+
+- FlightAware for dump1090-fa ADS-B decoder
+- Raspberry Pi Foundation
+- Flask web framework
+- Open source community
+
+---
+
+**Version**: 1.0.0  
+**Last Updated**: December 2025  
+**Author**: JLBMaritime Development Team
