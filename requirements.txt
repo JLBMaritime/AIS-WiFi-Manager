@@ -1,18 +1,4 @@
-# Python Requirements for ADS-B Wi-Fi Manager
-# JLBMaritime - Raspberry Pi 4B
-
-# Web Framework
 Flask==3.0.0
-
-# Note: These packages are typically pre-installed in Raspberry Pi OS
-# or will be handled by the installation script:
-# - Standard library modules (socket, subprocess, configparser, etc.)
-# - System packages (hostapd, dnsmasq, avahi-daemon, etc.)
-
-# The installation script will handle:
-# - dump1090-fa (from FlightAware repository)
-# - hostapd (WiFi hotspot)
-# - dnsmasq (DNS/DHCP)
-# - avahi-daemon (mDNS)
-# - wireless-tools
-# - wpasupplicant
+Flask-HTTPAuth==4.8.0
+netifaces==0.11.0
+pyserial==3.5
