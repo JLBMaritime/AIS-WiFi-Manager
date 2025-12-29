@@ -204,6 +204,11 @@ sysctl -p
 # Install systemd services
 echo "[9/10] Installing systemd services..."
 
+# Install wlan1 configuration service (runs before hostapd)
+cp "$INSTALL_DIR/services/wlan1-config.service" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable wlan1-config.service
+
 # Install ADS-B Server service
 cp "$INSTALL_DIR/services/adsb-server.service" /etc/systemd/system/
 systemctl daemon-reload

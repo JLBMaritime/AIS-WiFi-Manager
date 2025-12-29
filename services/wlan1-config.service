@@ -1,0 +1,23 @@
+[Unit]
+Description=Configure wlan1 for Hotspot
+Before=hostapd.service dnsmasq.service
+After=network-pre.target NetworkManager.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/sleep 2
+ExecStart=/sbin/ip link set wlan1 down
+ExecStart=/bin/sleep 1
+ExecStart=/sbin/ip link set wlan1 up
+ExecStart=/bin/sleep 1
+ExecStart=/sbin/ip addr flush dev wlan1
+ExecStart=/sbin/ip addr add 192.168.4.1/24 dev wlan1
+ExecStart=/sbin/iw dev wlan1 set power_save off
+ExecStart=/sbin/iwconfig wlan1 power off
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
