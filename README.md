@@ -57,6 +57,17 @@ AIS-WiFi Manager merges two essential functionalities into a single, efficient a
 - dnsmasq
 - avahi-daemon
 
+## Prerequisites Installation
+
+Before installing AIS-WiFi Manager, ensure git is installed on your Raspberry Pi:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git
+```
+
+Git is required to clone the repository from GitHub. If you already have git installed, you can skip this step.
+
 ## Quick Installation
 
 1. Clone the repository:
