@@ -49,11 +49,26 @@ apt-get install -y network-manager
 apt-get install -y avahi-daemon
 apt-get install -y git
 
-echo -e "${GREEN}Step 3: Setting hostname to ${HOSTNAME}...${NC}"
+echo -e "${GREEN}Step 3: Checking for Apache2 conflicts...${NC}"
+# Stop and disable Apache2 if it's installed (conflicts with port 80)
+if systemctl is-active --quiet apache2 2>/dev/null; then
+    echo "Apache2 detected and running - stopping and disabling to free port 80..."
+    systemctl stop apache2
+    systemctl disable apache2
+    echo "Apache2 has been stopped and disabled."
+elif systemctl is-enabled --quiet apache2 2>/dev/null; then
+    echo "Apache2 detected (not running) - disabling to prevent conflicts..."
+    systemctl disable apache2
+    echo "Apache2 has been disabled."
+else
+    echo "No Apache2 conflict detected - port 80 is available."
+fi
+
+echo -e "${GREEN}Step 4: Setting hostname to ${HOSTNAME}...${NC}"
 hostnamectl set-hostname "$HOSTNAME"
 sed -i "s/127.0.1.1.*/127.0.1.1\t$HOSTNAME/" /etc/hosts
 
-echo -e "${GREEN}Step 4: Configuring hotspot on wlan1 with NetworkManager...${NC}"
+echo -e "${GREEN}Step 5: Configuring hotspot on wlan1 with NetworkManager...${NC}"
 
 # Stop and disable any conflicting services
 systemctl stop hostapd 2>/dev/null || true
@@ -74,7 +89,7 @@ nmcli connection add type wifi ifname wlan1 con-name Hotspot autoconnect yes ssi
 # Activate the hotspot connection
 nmcli connection up Hotspot
 
-echo -e "${GREEN}Step 5: Creating installation directory...${NC}"
+echo -e "${GREEN}Step 6: Creating installation directory...${NC}"
 mkdir -p $INSTALL_DIR
 cp -r ./* $INSTALL_DIR/
 cd $INSTALL_DIR
@@ -88,10 +103,10 @@ chmod +x $INSTALL_DIR/cli/ais_wifi_cli.py
 # Create symlink for easy CLI access
 ln -sf $INSTALL_DIR/cli/ais_wifi_cli.py /usr/local/bin/ais-wifi-cli
 
-echo -e "${GREEN}Step 6: Installing Python dependencies...${NC}"
+echo -e "${GREEN}Step 7: Installing Python dependencies...${NC}"
 pip3 install --break-system-packages -r requirements.txt || pip3 install -r requirements.txt
 
-echo -e "${GREEN}Step 7: Creating systemd service...${NC}"
+echo -e "${GREEN}Step 8: Creating systemd service...${NC}"
 cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
 [Unit]
 Description=AIS-WiFi Manager Service
@@ -111,7 +126,7 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-echo -e "${GREEN}Step 8: Enabling and starting services...${NC}"
+echo -e "${GREEN}Step 9: Enabling and starting services...${NC}"
 systemctl daemon-reload
 systemctl enable avahi-daemon
 systemctl enable ${SERVICE_NAME}
