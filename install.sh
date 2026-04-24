@@ -1,156 +1,144 @@
-#!/bin/bash
-# AIS-WiFi Manager Installation Script
-# For Raspberry Pi 4B with Raspberry Pi OS (64-bit Bookworm)
+#!/usr/bin/env bash
+# ============================================================================
+# JLBMaritime AIS-Server — installer
+# Target: Raspberry Pi 4B, Raspberry Pi OS Lite (Bookworm 64-bit), headless.
+# Idempotent: safe to re-run to upgrade an existing install.
+# ============================================================================
+set -euo pipefail
 
-set -e
+INSTALL_DIR="/opt/ais-server"
+CONFIG_DIR="/etc/ais-server"
+DATA_DIR="/var/lib/ais-server"
+LOG_DIR="/var/log/ais-server"
+SERVICE_NAME="ais-server"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+REPO_URL="${REPO_URL:-https://github.com/JLBMaritime/AIS-Server.git}"
+REPO_BRANCH="${REPO_BRANCH:-main}"
 
-# Configuration Variables
-INSTALL_DIR="/opt/ais-wifi-manager"
-SERVICE_NAME="ais-wifi-manager"
-HOTSPOT_SSID="JLBMaritime-AIS"
-HOTSPOT_PASSWORD="Admin123"
-HOTSPOT_IP="192.168.4.1"
-HOSTNAME="AIS"
+INSTALL_TAILSCALE="${INSTALL_TAILSCALE:-1}"   # set to 0 to skip
 
-echo "========================================="
-echo "AIS-WiFi Manager Installation"
-echo "========================================="
-echo ""
+log()   { echo -e "\033[1;34m[install]\033[0m $*"; }
+ok()    { echo -e "\033[1;32m[ok]\033[0m $*"; }
+warn()  { echo -e "\033[1;33m[warn]\033[0m $*"; }
+die()   { echo -e "\033[1;31m[error]\033[0m $*" >&2; exit 1; }
 
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then 
-    echo -e "${RED}Error: This script must be run as root (use sudo)${NC}"
-    exit 1
+[[ $EUID -eq 0 ]] || die "Run as root (sudo bash install.sh)"
+
+# ----------------------------------------------------------------------------
+# 1. APT packages
+# ----------------------------------------------------------------------------
+log "Updating apt and installing prerequisites…"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y --no-install-recommends \
+    git curl ca-certificates rsync \
+    python3 python3-venv python3-pip python3-dev \
+    build-essential libffi-dev \
+    network-manager \
+    sqlite3 \
+    logrotate
+
+# ----------------------------------------------------------------------------
+# 2. Tailscale (optional)
+# ----------------------------------------------------------------------------
+if [[ "${INSTALL_TAILSCALE}" == "1" ]]; then
+  if ! command -v tailscale >/dev/null 2>&1; then
+    log "Installing Tailscale…"
+    curl -fsSL https://tailscale.com/install.sh | sh
+  else
+    ok "Tailscale already installed"
+  fi
+  systemctl enable --now tailscaled || warn "tailscaled not enabled (will need manual 'sudo tailscale up')"
 fi
 
-# Check if running on Raspberry Pi
-if ! grep -q "Raspberry Pi" /proc/cpuinfo; then
-    echo -e "${YELLOW}Warning: This does not appear to be a Raspberry Pi${NC}"
-    read -p "Continue anyway? (y/n) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
-fi
-
-echo -e "${GREEN}Step 1: Updating system packages...${NC}"
-apt-get update
-apt-get upgrade -y
-
-echo -e "${GREEN}Step 2: Installing system dependencies...${NC}"
-apt-get install -y python3 python3-pip python3-venv
-apt-get install -y network-manager
-apt-get install -y avahi-daemon
-apt-get install -y git
-
-echo -e "${GREEN}Step 3: Checking for Apache2 conflicts...${NC}"
-# Stop and disable Apache2 if it's installed (conflicts with port 80)
-if systemctl is-active --quiet apache2 2>/dev/null; then
-    echo "Apache2 detected and running - stopping and disabling to free port 80..."
-    systemctl stop apache2
-    systemctl disable apache2
-    echo "Apache2 has been stopped and disabled."
-elif systemctl is-enabled --quiet apache2 2>/dev/null; then
-    echo "Apache2 detected (not running) - disabling to prevent conflicts..."
-    systemctl disable apache2
-    echo "Apache2 has been disabled."
+# ----------------------------------------------------------------------------
+# 3. Fetch / update source
+# ----------------------------------------------------------------------------
+if [[ -d "${INSTALL_DIR}/.git" ]]; then
+  log "Updating existing checkout in ${INSTALL_DIR}…"
+  git -C "${INSTALL_DIR}" fetch --all --prune
+  git -C "${INSTALL_DIR}" checkout "${REPO_BRANCH}"
+  git -C "${INSTALL_DIR}" pull --ff-only
+elif [[ -f "$(dirname "$0")/pyproject.toml" ]]; then
+  # Installing from a local checkout (the one containing this script).
+  log "Copying local checkout to ${INSTALL_DIR}…"
+  mkdir -p "${INSTALL_DIR}"
+  rsync -a --delete --exclude .venv --exclude __pycache__ \
+        --exclude '*.pyc' "$(dirname "$0")/" "${INSTALL_DIR}/"
 else
-    echo "No Apache2 conflict detected - port 80 is available."
+  log "Cloning ${REPO_URL}@${REPO_BRANCH} -> ${INSTALL_DIR}…"
+  git clone --branch "${REPO_BRANCH}" "${REPO_URL}" "${INSTALL_DIR}"
 fi
 
-echo -e "${GREEN}Step 4: Setting hostname to ${HOSTNAME}...${NC}"
-hostnamectl set-hostname "$HOSTNAME"
-sed -i "s/127.0.1.1.*/127.0.1.1\t$HOSTNAME/" /etc/hosts
+# ----------------------------------------------------------------------------
+# 4. Python venv + deps
+# ----------------------------------------------------------------------------
+if [[ ! -d "${INSTALL_DIR}/.venv" ]]; then
+  log "Creating Python venv…"
+  python3 -m venv "${INSTALL_DIR}/.venv"
+fi
+"${INSTALL_DIR}/.venv/bin/pip" install --upgrade pip wheel
+# Remove eventlet if a previous install pulled it in – it's incompatible with
+# Python 3.13 (RPi OS Trixie) and has been replaced by async_mode="threading".
+"${INSTALL_DIR}/.venv/bin/pip" uninstall -y eventlet >/dev/null 2>&1 || true
+"${INSTALL_DIR}/.venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
+"${INSTALL_DIR}/.venv/bin/pip" install -e "${INSTALL_DIR}"
 
-echo -e "${GREEN}Step 5: Configuring hotspot on wlan1 with NetworkManager...${NC}"
+# ----------------------------------------------------------------------------
+# 5. Directories + config
+# ----------------------------------------------------------------------------
+install -d -m 0755 "${CONFIG_DIR}"
+install -d -m 0750 "${DATA_DIR}"
+install -d -m 0755 "${LOG_DIR}"
 
-# Stop and disable any conflicting services
-systemctl stop hostapd 2>/dev/null || true
-systemctl disable hostapd 2>/dev/null || true
-systemctl stop dnsmasq 2>/dev/null || true
-systemctl disable dnsmasq 2>/dev/null || true
+if [[ ! -f "${CONFIG_DIR}/config.yaml" ]]; then
+  log "Seeding default config -> ${CONFIG_DIR}/config.yaml"
+  install -m 0644 "${INSTALL_DIR}/config/ais-server.example.yaml" \
+          "${CONFIG_DIR}/config.yaml"
+else
+  ok  "Keeping existing ${CONFIG_DIR}/config.yaml"
+fi
 
-# Configure NetworkManager hotspot with built-in DHCP
-nmcli connection delete Hotspot 2>/dev/null || true
-nmcli connection add type wifi ifname wlan1 con-name Hotspot autoconnect yes ssid "$HOTSPOT_SSID" mode ap \
-    802-11-wireless.band bg \
-    802-11-wireless.channel 7 \
-    802-11-wireless-security.key-mgmt wpa-psk \
-    802-11-wireless-security.psk "$HOTSPOT_PASSWORD" \
-    ipv4.method shared \
-    ipv4.address $HOTSPOT_IP/24
+install -m 0644 "${INSTALL_DIR}/config/logrotate.conf" \
+        "/etc/logrotate.d/ais-server"
 
-# Activate the hotspot connection
-nmcli connection up Hotspot
-
-echo -e "${GREEN}Step 6: Creating installation directory...${NC}"
-mkdir -p $INSTALL_DIR
-cp -r ./* $INSTALL_DIR/
-cd $INSTALL_DIR
-
-# Fix line endings (convert CRLF to LF for Unix compatibility)
-sed -i 's/\r$//' $INSTALL_DIR/cli/ais_wifi_cli.py
-
-# Make CLI executable
-chmod +x $INSTALL_DIR/cli/ais_wifi_cli.py
-
-# Create symlink for easy CLI access
-ln -sf $INSTALL_DIR/cli/ais_wifi_cli.py /usr/local/bin/ais-wifi-cli
-
-echo -e "${GREEN}Step 7: Installing Python dependencies...${NC}"
-pip3 install --break-system-packages -r requirements.txt || pip3 install -r requirements.txt
-
-echo -e "${GREEN}Step 8: Creating systemd service...${NC}"
-cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
-[Unit]
-Description=AIS-WiFi Manager Service
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=$INSTALL_DIR
-ExecStart=/usr/bin/python3 $INSTALL_DIR/run.py
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
+# ----------------------------------------------------------------------------
+# 6. CLI shim
+# ----------------------------------------------------------------------------
+cat > /usr/local/bin/aisctl <<EOF
+#!/usr/bin/env bash
+exec ${INSTALL_DIR}/.venv/bin/aisctl "\$@"
 EOF
+chmod +x /usr/local/bin/aisctl
 
-echo -e "${GREEN}Step 9: Enabling and starting services...${NC}"
+# ----------------------------------------------------------------------------
+# 7. systemd service
+# ----------------------------------------------------------------------------
+install -m 0644 "${INSTALL_DIR}/systemd/${SERVICE_NAME}.service" \
+        "/etc/systemd/system/${SERVICE_NAME}.service"
+
+# Allow binding to port 80 without running as root:
+if [[ -x "${INSTALL_DIR}/.venv/bin/python" ]]; then
+  setcap 'cap_net_bind_service=+ep' \
+         "$(readlink -f "${INSTALL_DIR}/.venv/bin/python")" || true
+fi
+
 systemctl daemon-reload
-systemctl enable avahi-daemon
-systemctl enable ${SERVICE_NAME}
-systemctl start avahi-daemon
+systemctl enable "${SERVICE_NAME}"
+systemctl restart "${SERVICE_NAME}"
 
-echo ""
-echo -e "${GREEN}=========================================${NC}"
-echo -e "${GREEN}Installation Complete!${NC}"
-echo -e "${GREEN}=========================================${NC}"
-echo ""
-echo "The system needs to reboot to apply all changes."
-echo ""
-echo "After reboot:"
-echo "  1. Connect to WiFi hotspot: $HOTSPOT_SSID"
-echo "  2. Password: $HOTSPOT_PASSWORD"
-echo "  3. Open browser to: http://${HOSTNAME}.local or http://$HOTSPOT_IP"
-echo "  4. Login with:"
-echo "     Username: JLBMaritime"
-echo "     Password: Admin"
-echo ""
-echo "The service will start automatically on boot."
-echo ""
-read -p "Reboot now? (y/n) " -n 1 -r
+# ----------------------------------------------------------------------------
+# 8. Done
+# ----------------------------------------------------------------------------
+IPADDR=$(hostname -I | awk '{print $1}')
 echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    reboot
+ok  "AIS-Server installed."
+echo "  Web UI:   http://${IPADDR}/"
+echo "  Login:    JLBMaritime / Admin   (you will be forced to change it)"
+echo "  CLI:      aisctl status         (run 'aisctl --help')"
+echo "  Logs:     journalctl -u ${SERVICE_NAME} -f"
+echo "  Config:   ${CONFIG_DIR}/config.yaml"
+if [[ "${INSTALL_TAILSCALE}" == "1" ]]; then
+  echo
+  echo "  Tailscale: run  sudo tailscale up --ssh  (first time only)."
 fi
