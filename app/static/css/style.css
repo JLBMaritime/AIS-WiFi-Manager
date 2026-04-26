@@ -1,0 +1,814 @@
+/* AIS-WiFi Manager Styles */
+:root {
+    --primary-color: #1c2346;
+    --secondary-color: #137dc5;
+    --background-color: #252a34;
+    --card-background: #2d3340;
+    --text-color: #ffffff;
+    --text-secondary: #b8bcc8;
+    --success-color: #28a745;
+    --error-color: #dc3545;
+    --warning-color: #ffc107;
+    --border-color: #3d4452;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    line-height: 1.6;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* Header */
+header {
+    background-color: var(--primary-color);
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.logo {
+    height: 60px;
+    width: auto;
+}
+
+header h1 {
+    color: var(--text-color);
+    font-size: 2rem;
+    font-weight: 600;
+}
+
+/* Navigation */
+.main-nav {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 30px;
+    padding: 10px;
+    background-color: var(--card-background);
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.nav-link {
+    padding: 12px 24px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+    font-weight: 500;
+}
+
+.nav-link:hover {
+    background-color: var(--background-color);
+    color: var(--text-color);
+}
+
+.nav-link.active {
+    background-color: var(--secondary-color);
+    color: white;
+}
+
+/* Cards */
+.card {
+    background-color: var(--card-background);
+    border-radius: 8px;
+    padding: 25px;
+    margin-bottom: 25px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.card h2 {
+    color: var(--text-color);
+    font-size: 1.5rem;
+    margin-bottom: 20px;
+    font-weight: 600;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.section-header h2 {
+    margin-bottom: 0;
+}
+
+/* Buttons */
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    min-width: 100px;
+    min-height: 44px;
+}
+
+.btn-primary {
+    background-color: var(--secondary-color);
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #0f6aa8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(19, 125, 197, 0.3);
+}
+
+.btn-secondary {
+    background-color: var(--secondary-color);
+    color: white;
+}
+
+.btn-secondary:hover {
+    background-color: #0f6aa8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(19, 125, 197, 0.3);
+}
+
+.btn-success {
+    background-color: var(--success-color);
+    color: white;
+}
+
+.btn-success:hover {
+    background-color: #218838;
+}
+
+.btn-danger {
+    background-color: var(--error-color);
+    color: white;
+}
+
+.btn-danger:hover {
+    background-color: #c82333;
+}
+
+.btn-cancel {
+    background-color: #6c757d;
+    color: white;
+}
+
+.btn-cancel:hover {
+    background-color: #5a6268;
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn:active {
+    transform: translateY(0);
+}
+
+/* Connection Info */
+.connection-info {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.info-row, .status-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px;
+    background-color: var(--background-color);
+    border-radius: 6px;
+    border-left: 3px solid var(--secondary-color);
+    align-items: center;
+}
+
+.label {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.value {
+    color: var(--text-color);
+    font-weight: 500;
+}
+
+/* Status Badges */
+.status-badge {
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.status-badge.running {
+    background-color: rgba(40, 167, 69, 0.2);
+    color: var(--success-color);
+    border: 1px solid var(--success-color);
+}
+
+.status-badge.stopped {
+    background-color: rgba(220, 53, 69, 0.2);
+    color: var(--error-color);
+    border: 1px solid var(--error-color);
+}
+
+/* AIS Status Section */
+.ais-status {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.status-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+/* Endpoints List */
+.endpoints-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.endpoint-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    background-color: var(--background-color);
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+
+.endpoint-item:hover {
+    border-color: var(--secondary-color);
+}
+
+.endpoint-info {
+    flex: 1;
+}
+
+.endpoint-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-color);
+    display: block;
+    margin-bottom: 5px;
+}
+
+.endpoint-address {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.endpoint-status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.status-dot.connected {
+    background-color: var(--success-color);
+    box-shadow: 0 0 8px var(--success-color);
+}
+
+.status-dot.disconnected {
+    background-color: var(--error-color);
+}
+
+.status-dot.disabled {
+    background-color: #6c757d;
+}
+
+.endpoint-status-text {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.endpoint-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-icon {
+    min-width: auto;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+}
+
+/* Network Lists */
+.network-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.network-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background-color: var(--background-color);
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+
+.network-item:hover {
+    border-color: var(--secondary-color);
+    transform: translateX(5px);
+}
+
+.network-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.network-ssid {
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: var(--text-color);
+}
+
+.network-details {
+    display: flex;
+    gap: 15px;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.network-signal {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.signal-strong {
+    color: var(--success-color);
+}
+
+.signal-medium {
+    color: var(--warning-color);
+}
+
+.signal-weak {
+    color: var(--error-color);
+}
+
+.network-actions {
+    display: flex;
+    gap: 10px;
+}
+
+/* Forms */
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.checkbox-group input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
+
+/* Input Fields */
+.input-field {
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    font-size: 1rem;
+    width: 100%;
+    min-height: 44px;
+}
+
+.input-field:focus {
+    outline: none;
+    border-color: var(--secondary-color);
+    box-shadow: 0 0 0 3px rgba(19, 125, 197, 0.1);
+}
+
+/* Logs Container */
+.logs-container {
+    background-color: var(--background-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 15px;
+    max-height: 500px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+}
+
+.log-entry {
+    padding: 8px;
+    margin-bottom: 5px;
+    border-left: 3px solid var(--text-secondary);
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+}
+
+.log-entry.log-info {
+    border-left-color: var(--secondary-color);
+}
+
+.log-entry.log-warning {
+    border-left-color: var(--warning-color);
+    background-color: rgba(255, 193, 7, 0.1);
+}
+
+.log-entry.log-error {
+    border-left-color: var(--error-color);
+    background-color: rgba(220, 53, 69, 0.1);
+}
+
+.log-timestamp {
+    color: var(--text-secondary);
+    margin-right: 10px;
+}
+
+.log-level {
+    font-weight: 600;
+    margin-right: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.8rem;
+}
+
+.log-entry.log-info .log-level {
+    color: var(--secondary-color);
+}
+
+.log-entry.log-warning .log-level {
+    color: var(--warning-color);
+}
+
+.log-entry.log-error .log-level {
+    color: var(--error-color);
+}
+
+.log-message {
+    color: var(--text-color);
+}
+
+/* Status Summary */
+.status-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.endpoints-status {
+    margin-top: 15px;
+}
+
+.endpoints-status h3 {
+    color: var(--text-color);
+    font-size: 1.1rem;
+    margin-bottom: 15px;
+}
+
+.endpoint-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background-color: var(--background-color);
+    border-radius: 6px;
+    margin-bottom: 10px;
+}
+
+.endpoint-status-badge {
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.endpoint-status-badge.connected {
+    background-color: rgba(40, 167, 69, 0.2);
+    color: var(--success-color);
+}
+
+.endpoint-status-badge.disconnected {
+    background-color: rgba(220, 53, 69, 0.2);
+    color: var(--error-color);
+}
+
+/* Diagnostics */
+.diagnostics-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.diagnostics-controls .input-field {
+    flex: 1;
+    min-width: 200px;
+}
+
+.diagnostics-output {
+    background-color: var(--background-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 15px;
+    min-height: 100px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--text-secondary);
+}
+
+.diagnostic-row {
+    margin-bottom: 10px;
+    padding: 8px;
+    border-left: 3px solid var(--secondary-color);
+    background-color: rgba(19, 125, 197, 0.1);
+}
+
+/* Modal */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal.show {
+    display: flex;
+}
+
+.modal-content {
+    background-color: var(--card-background);
+    padding: 30px;
+    border-radius: 8px;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.modal-content h3 {
+    color: var(--text-color);
+    margin-bottom: 15px;
+}
+
+.modal-content p {
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+}
+
+.endpoint-name-display {
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.modal-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.modal-buttons .btn {
+    flex: 1;
+}
+
+/* Toast Notification */
+.toast {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    padding: 15px 25px;
+    border-radius: 6px;
+    color: white;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.3s ease;
+    z-index: 2000;
+    max-width: 400px;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast.success {
+    background-color: var(--success-color);
+}
+
+.toast.error {
+    background-color: var(--error-color);
+}
+
+.toast.info {
+    background-color: var(--secondary-color);
+}
+
+/* Loading State */
+.loading {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.no-data {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.message {
+    margin-top: 15px;
+    padding: 12px;
+    border-radius: 6px;
+    display: none;
+}
+
+.message.show {
+    display: block;
+}
+
+.message.error {
+    background-color: rgba(220, 53, 69, 0.2);
+    border: 1px solid var(--error-color);
+    color: var(--error-color);
+}
+
+.message.success {
+    background-color: rgba(40, 167, 69, 0.2);
+    border: 1px solid var(--success-color);
+    color: var(--success-color);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    body {
+        padding: 10px;
+    }
+
+    header h1 {
+        font-size: 1.5rem;
+    }
+
+    .logo {
+        height: 40px;
+    }
+
+    .main-nav {
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .nav-link {
+        text-align: center;
+        width: 100%;
+    }
+
+    .card {
+        padding: 15px;
+    }
+
+    .card h2 {
+        font-size: 1.2rem;
+    }
+
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+
+    .section-header .btn {
+        width: 100%;
+    }
+
+    .status-actions {
+        flex-direction: column;
+    }
+
+    .status-actions .btn {
+        width: 100%;
+    }
+
+    .endpoint-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+
+    .endpoint-actions {
+        width: 100%;
+    }
+
+    .endpoint-actions .btn {
+        flex: 1;
+    }
+
+    .network-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+
+    .network-actions {
+        width: 100%;
+    }
+
+    .network-actions .btn {
+        flex: 1;
+    }
+
+    .diagnostics-controls {
+        flex-direction: column;
+    }
+
+    .diagnostics-controls .btn {
+        width: 100%;
+    }
+
+    .modal-content {
+        margin: 20px;
+    }
+
+    .toast {
+        right: 10px;
+        left: 10px;
+        bottom: 10px;
+    }
+
+    .info-row, .status-row {
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-start;
+    }
+}
+
+@media (max-width: 480px) {
+    .header-content {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .modal-buttons {
+        flex-direction: column;
+    }
+}

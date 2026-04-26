@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}AIS Logs - AIS-WiFi Manager{% endblock %}
+{% block page_title %}AIS Logs{% endblock %}
+
+{% block content %}
+<!-- Logs Section -->
+<section class="card">
+    <div class="section-header">
+        <h2>Service Logs</h2>
+        <button id="refresh-logs-btn" class="btn btn-secondary">Refresh</button>
+    </div>
+    <div id="logs-container" class="logs-container">
+        <div class="loading">Loading logs...</div>
+    </div>
+</section>
+
+<!-- Service Status Summary -->
+<section class="card">
+    <h2>Status Summary</h2>
+    <div id="status-summary" class="status-summary">
+        <div class="loading">Loading status...</div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// AIS Logs JavaScript
+let logsRefreshInterval;
+
+function showToast(message, type = 'info') {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = `toast ${type} show`;
+    setTimeout(() => {
+        toast.className = 'toast';
+    }, 3000);
+}
+
+function formatLogLevel(level) {
+    const colors = {
+        'ERROR': 'error',
+        'WARNING': 'warning',
+        'INFO': 'info'
+    };
+    return colors[level] || 'info';
+}
+
+function loadLogs() {
+    fetch('/api/ais/logs?count=100')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.logs) {
+                displayLogs(data.logs);
+            } else {
+                document.getElementById('logs-container').innerHTML = 
+                    '<p class="no-data">No logs available</p>';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading logs:', error);
+            document.getElementById('logs-container').innerHTML = 
+                '<p class="error">Error loading logs</p>';
+        });
+}
+
+function displayLogs(logs) {
+    const container = document.getElementById('logs-container');
+    
+    if (logs.length === 0) {
+        container.innerHTML = '<p class="no-data">No logs available</p>';
+        return;
+    }
+    
+    // Display logs in reverse order (newest first)
+    const reversedLogs = [...logs].reverse();
+    
+    const logsHtml = reversedLogs.map(log => `
+        <div class="log-entry log-${formatLogLevel(log.level)}">
+            <span class="log-timestamp">${log.timestamp}</span>
+            <span class="log-level">${log.level}</span>
+            <span class="log-message">${log.message}</span>
+        </div>
+    `).join('');
+    
+    container.innerHTML = logsHtml;
+}
+
+function loadStatus() {
+    fetch('/api/ais/status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.status) {
+                displayStatus(data.status);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading status:', error);
+        });
+}
+
+function displayStatus(status) {
+    const container = document.getElementById('status-summary');
+    
+    const serviceStatus = status.running ? 
+        '<span class="status-badge running">Running</span>' : 
+        '<span class="status-badge stopped">Stopped</span>';
+    
+    let endpointsHtml = '';
+    if (status.endpoints && status.endpoints.length > 0) {
+        endpointsHtml = status.endpoints.map(endpoint => {
+            const epStatus = status.endpoint_status[endpoint.id];
+            const connected = epStatus && epStatus.connected;
+            const statusClass = connected ? 'connected' : 'disconnected';
+            const statusText = connected ? 'Connected' : 'Disconnected';
+            
+            return `
+                <div class="endpoint-status">
+                    <span class="endpoint-name">${endpoint.name}</span>
+                    <span class="endpoint-address">${endpoint.ip}:${endpoint.port}</span>
+                    <span class="endpoint-status-badge ${statusClass}">${statusText}</span>
+                </div>
+            `;
+        }).join('');
+    } else {
+        endpointsHtml = '<p class="no-data">No endpoints configured</p>';
+    }
+    
+    container.innerHTML = `
+        <div class="status-row">
+            <span class="label">Service Status:</span>
+            ${serviceStatus}
+        </div>
+        <div class="status-row">
+            <span class="label">Serial Port:</span>
+            <span class="value">${status.serial_port}</span>
+        </div>
+        <div class="endpoints-status">
+            <h3>Endpoints Status</h3>
+            ${endpointsHtml}
+        </div>
+    `;
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    loadLogs();
+    loadStatus();
+    
+    // Refresh button
+    document.getElementById('refresh-logs-btn').addEventListener('click', function() {
+        loadLogs();
+        loadStatus();
+        showToast('Logs refreshed', 'success');
+    });
+    
+    // Auto-refresh every 5 seconds
+    logsRefreshInterval = setInterval(() => {
+        loadLogs();
+        loadStatus();
+    }, 5000);
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    if (logsRefreshInterval) {
+        clearInterval(logsRefreshInterval);
+    }
+});
+</script>
+{% endblock %}

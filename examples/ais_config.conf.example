@@ -1,0 +1,25 @@
+[AIS]
+# Serial port for AIS receiver (fixed, not editable via web interface)
+serial_port = /dev/serial0
+
+# Example endpoint configurations
+# You can add as many endpoints as needed
+# Each endpoint forwards AIS data to the specified IP and port
+
+[ENDPOINT_1]
+name = Chart Plotter
+ip = 192.168.1.100
+port = 12345
+enabled = true
+
+[ENDPOINT_2]
+name = Navigation Computer
+ip = 192.168.1.101
+port = 10110
+enabled = true
+
+[ENDPOINT_3]
+name = Backup System
+ip = 10.0.0.50
+port = 5000
+enabled = false
