@@ -16,11 +16,16 @@ from app.wifi_manager import (
     connect_to_network, forget_network as wifi_forget_network
 )
 from app.network_diagnostics import ping_test, get_full_diagnostics
-from app.database import get_saved_networks, init_db
+from app.database import (
+    get_saved_networks, init_db, set_password, reset_user_to_default,
+    DEFAULT_USER, DEFAULT_PASSWORD,
+)
 from app.ais_config_manager import (
     get_all_endpoints, add_endpoint, update_endpoint,
     delete_endpoint, toggle_endpoint
 )
+
+HOTSPOT_PASSWORD_FILE = '/opt/ais-wifi-manager/HOTSPOT_PASSWORD.txt'
 
 # Service name for systemctl commands
 SERVICE_NAME = 'ais-wifi-manager'
@@ -708,8 +713,122 @@ def show_complete_status():
 # Main Function
 # ============================================================================
 
+# ============================================================================
+# Non-interactive subcommands
+# ============================================================================
+
+def cmd_reset_password(argv):
+    """`ais-wifi-cli reset-password [--to PASSWORD] [--user NAME]`
+
+    With no flags: restore the install default (JLBMaritime / Admin)
+    and force a change on next login.  This is the SSH-based recovery
+    path documented on the login page.
+
+    With `--to`: set an explicit password (must be ≥ 8 chars).
+    """
+    import argparse
+    parser = argparse.ArgumentParser(prog='ais-wifi-cli reset-password',
+                                     add_help=True)
+    parser.add_argument('--user', default=DEFAULT_USER,
+                        help='Username to reset (default: %(default)s)')
+    parser.add_argument('--to', default=None,
+                        help='Set this exact password '
+                             '(default: restore install default and force change)')
+    args = parser.parse_args(argv)
+
+    if os.geteuid() != 0:
+        print(color_text("This command must be run with sudo "
+                         "(it edits /opt/ais-wifi-manager/wifi_manager.db).",
+                         Colors.RED))
+        return 2
+
+    init_db()
+    if args.to is None:
+        reset_user_to_default(args.user)
+        print(color_text(
+            f"User '{args.user}' reset to default password "
+            f"('{DEFAULT_PASSWORD}'). The user will be forced to "
+            "change it on next login.", Colors.GREEN))
+        return 0
+
+    if len(args.to) < 8:
+        print(color_text("Password must be at least 8 characters.",
+                         Colors.RED))
+        return 1
+    if set_password(args.user, args.to, must_change=False):
+        print(color_text(f"Password for '{args.user}' updated.",
+                         Colors.GREEN))
+        return 0
+    print(color_text("Failed to update password.", Colors.RED))
+    return 1
+
+
+def cmd_show_hotspot(_argv):
+    """`ais-wifi-cli show-hotspot` — print the AP password set at install time."""
+    if not os.path.exists(HOTSPOT_PASSWORD_FILE):
+        print(color_text(
+            f"No hotspot info file at {HOTSPOT_PASSWORD_FILE}. "
+            "Either the installer was not run, or the file was "
+            "removed.", Colors.RED))
+        return 1
+    if os.geteuid() != 0:
+        print(color_text(
+            f"Note: {HOTSPOT_PASSWORD_FILE} is mode 600 root, "
+            "you'll need sudo to read it.", Colors.YELLOW))
+    try:
+        with open(HOTSPOT_PASSWORD_FILE, 'r') as f:
+            print(f.read().rstrip())
+        return 0
+    except OSError as exc:
+        print(color_text(f"Cannot read {HOTSPOT_PASSWORD_FILE}: {exc}",
+                         Colors.RED))
+        return 1
+
+
+def cmd_health(_argv):
+    """`ais-wifi-cli health` — quick liveness check."""
+    import urllib.request
+    import urllib.error
+    try:
+        with urllib.request.urlopen('http://127.0.0.1/healthz', timeout=3) as r:
+            print(r.read().decode('utf-8', errors='replace'))
+            return 0 if r.status == 200 else 1
+    except urllib.error.HTTPError as e:
+        print(f"HTTP {e.code}: {e.read().decode('utf-8', errors='replace')}")
+        return 1
+    except OSError as e:
+        print(color_text(f"Cannot reach local server: {e}", Colors.RED))
+        return 1
+
+
+def _dispatch_subcommand():
+    """If argv[1] is a known subcommand, run it and exit; else fall through
+    to the interactive menu."""
+    if len(sys.argv) < 2:
+        return None
+    sub = sys.argv[1]
+    handlers = {
+        'reset-password': cmd_reset_password,
+        'show-hotspot':   cmd_show_hotspot,
+        'health':         cmd_health,
+    }
+    if sub in handlers:
+        sys.exit(handlers[sub](sys.argv[2:]) or 0)
+    if sub in ('-h', '--help', 'help'):
+        print("AIS-WiFi Manager CLI")
+        print("Usage:")
+        print("  ais-wifi-cli                     Interactive menu")
+        print("  sudo ais-wifi-cli reset-password [--to NEWPASS] [--user NAME]")
+        print("  sudo ais-wifi-cli show-hotspot")
+        print("  ais-wifi-cli health")
+        sys.exit(0)
+    return None
+
+
 def main():
     """Main CLI loop"""
+    _dispatch_subcommand()
+
     # Initialize database
     init_db()
     

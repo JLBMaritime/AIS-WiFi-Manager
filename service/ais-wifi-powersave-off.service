@@ -1,0 +1,14 @@
+[Unit]
+Description=Disable Wi-Fi power-save on wlan0 (brcmfmac freeze mitigation)
+After=NetworkManager.service network.target
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Best-effort: ignore failures when wlan0 is briefly absent at boot.
+ExecStart=/bin/sh -c 'iw dev wlan0 set power_save off || true ; \
+                      iwconfig wlan0 power off || true'
+
+[Install]
+WantedBy=multi-user.target

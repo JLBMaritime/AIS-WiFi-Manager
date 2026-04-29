@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Sign in · AIS-WiFi Manager{% endblock %}
+{% block page_title %}Sign in{% endblock %}
+
+{% block content %}
+<div class="login-wrap">
+  <form method="post" action="{{ url_for('login') }}" class="login-card" autocomplete="off">
+    <input type="hidden" name="next" value="{{ next or '' }}">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, msg in messages %}
+        <div class="flash flash-{{ category }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <label>
+      <span>Username</span>
+      <input type="text" name="username" required autofocus
+             autocomplete="username">
+    </label>
+
+    <label>
+      <span>Password</span>
+      <input type="password" name="password" required
+             autocomplete="current-password">
+    </label>
+
+    <button type="submit" class="primary">Sign in</button>
+
+    <p class="login-help">
+      Lost your password? SSH into the Pi and run
+      <code>sudo ais-wifi-cli reset-password</code> &mdash; this restores
+      the default credentials and forces a change on next login.
+    </p>
+  </form>
+</div>
+{% endblock %}

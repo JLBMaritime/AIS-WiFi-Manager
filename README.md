@@ -1,405 +1,202 @@
 # AIS-WiFi Manager
 
-A unified management system for Raspberry Pi that combines AIS data forwarding with WiFi network management through a web-based interface.
-
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%204B-red)
-
-## Overview
-
-AIS-WiFi Manager merges two essential functionalities into a single, efficient application:
-- **AIS Data Forwarding**: Reads AIS data from a dAISy HAT and forwards it to multiple configurable endpoints
-- **WiFi Management**: Web-based interface for managing WiFi connections and network settings
-
-## Key Features
-
-### AIS Management
-- **Multiple Endpoints**: Forward AIS data to unlimited destinations simultaneously
-- **Web Configuration**: Add, edit, enable/disable, and delete endpoints through the web interface
-- **Individual Control**: Enable/disable endpoints without deleting configuration
-- **Real-Time Status**: Monitor connection status for each endpoint
-- **Automatic Retry**: 3 retry attempts per endpoint with independent failure handling
-- **Service Control**: Start, stop, and restart AIS forwarding from the web interface
-- **Live Logging**: View AIS service logs in real-time
-
-### WiFi Management
-- **Network Scanning**: Discover and display available WiFi networks with signal strength
-- **Connection Management**: Connect to networks with password support
-- **Saved Networks**: Remember and manage previously connected networks
-- **Network Diagnostics**: Built-in ping tests and network status monitoring
-- **Real-Time Updates**: Live status updates via AJAX polling
-
-### System Features
-- **Hotspot Mode**: wlan1 configured as access point (JLBMaritime-AIS), wlan0 for internet
-- **Web Interface**: Intuitive, mobile-responsive interface accessible via hotspot
-- **HTTP Authentication**: Secure access with username/password (JLBMaritime/Admin)
-- **Auto-Start**: Systemd service for automatic startup on boot
-- **Configuration Backup**: Automatic backup before any config changes
-
-## Hardware Requirements
-
-- Raspberry Pi 4B (2GB RAM or higher)
-- dAISy HAT or compatible AIS receiver
-- Two WiFi interfaces (wlan0 and wlan1)
-  - wlan0: Connect to internet
-  - wlan1: Hotspot for web interface access
-- Micro SD card (16GB or larger recommended)
-- Power supply for Raspberry Pi
-- Antenna suitable for AIS reception
-
-## Software Requirements
-
-- Raspberry Pi OS (64-bit Bookworm)
-- Python 3.9 or higher
-- NetworkManager (nmcli)
-- hostapd
-- dnsmasq
-- avahi-daemon
-
-## Prerequisites Installation
-
-Before installing AIS-WiFi Manager, ensure git is installed on your Raspberry Pi:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y git
-```
-
-Git is required to clone the repository from GitHub. If you already have git installed, you can skip this step.
-
-## Quick Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/JLBMaritime/AIS-WiFi-Manager.git
-cd AIS-WiFi-Manager
-```
-
-2. Run the installation script:
-```bash
-sudo bash install.sh
-```
-
-3. Reboot your Raspberry Pi:
-```bash
-sudo reboot
-```
-
-4. After reboot:
-   - Connect to WiFi hotspot: `JLBMaritime-AIS` (password: `Admin123`)
-   - Open browser to: `http://AIS.local` or `http://192.168.4.1`
-   - Login with username: `JLBMaritime`, password: `Admin`
-
-## Usage
-
-### Web Interface
-
-Access the web interface by connecting to the hotspot and navigating to http://AIS.local or http://192.168.4.1
-
-#### WiFi Manager
-
-1. **Scan Networks**: Click "Scan" to discover available WiFi networks
-2. **Connect**: Click "Connect" on a network, enter password if required
-3. **Saved Networks**: View and manage previously connected networks
-4. **Diagnostics**: Run ping tests and view network statistics
-
-### AIS Configuration
-
-1. Navigate to "AIS Configuration" in the main menu
-2. **View Status**: Check if AIS service is running
-3. **Add Endpoint**:
-   - Click "+ Add Endpoint"
-   - Enter name (e.g., "Chart Plotter")
-   - Enter IP address and port
-   - Choose if endpoint should be enabled
-   - Click "Save"
-4. **Manage Endpoints**:
-   - Toggle: Enable/disable without deleting
-   - Edit: Modify endpoint details
-   - Delete: Remove endpoint completely
-5. **Control Service**: Start, stop, or restart AIS forwarding
-
-### AIS Logs
-
-1. Navigate to "AIS Logs" to view real-time service logs
-2. Monitor connection status for all endpoints
-3. Logs auto-refresh every 5 seconds
-
-### Command Line Interface (CLI)
-
-The AIS-WiFi Manager includes a comprehensive CLI tool for terminal/SSH access. After installation, the CLI is available system-wide as `ais-wifi-cli`.
-
-#### Accessing the CLI
-
-```bash
-sudo ais-wifi-cli
-```
-
-#### CLI Features
-
-The CLI provides a menu-driven interface with color-coded output for easy navigation:
-
-**WiFi Management (Options 1-7):**
-1. Scan for networks - Discover available WiFi networks with signal strength
-2. Connect to network - Connect to a network interactively
-3. Show current connection - Display connected network and IP
-4. List saved networks - View all saved network configurations
-5. Forget network - Remove a saved network
-6. Run network diagnostics - View interface status, gateway, DNS
-7. Run ping test - Test connectivity to a host
-
-**AIS Management (Options 8-17):**
-8. AIS service status - View service and endpoint status
-9. Start AIS service - Start the AIS forwarding service
-10. Stop AIS service - Stop the AIS forwarding service
-11. Restart AIS service - Restart the service
-12. View AIS logs - Display service logs (configurable count)
-13. List endpoints - Show all configured endpoints with status
-14. Add endpoint - Interactively add a new endpoint
-15. Edit endpoint - Modify an existing endpoint
-16. Delete endpoint - Remove an endpoint
-17. Enable/disable endpoint - Toggle endpoint without deleting
-
-**System (Options 18-19):**
-18. Show complete system status - Comprehensive overview
-19. Exit - Close the CLI
-
-#### CLI Example Usage
-
-```bash
-# Start the CLI
-sudo ais-wifi-cli
-
-# The CLI will display a menu - choose options by number
-# For example, to add an AIS endpoint:
-# 1. Select option 14 (Add endpoint)
-# 2. Enter endpoint name: "Chart Plotter"
-# 3. Enter IP address: "192.168.1.100"
-# 4. Enter port: "10110"
-# 5. Enable endpoint: Y
-
-# To view status:
-# Select option 18 (Show complete system status)
-```
-
-#### CLI Benefits
-
-- ✅ **No browser needed** - Perfect for SSH access
-- ✅ **Color-coded output** - Easy to read status indicators
-- ✅ **Interactive prompts** - Guides you through each operation
-- ✅ **Full functionality** - All web interface features available
-- ✅ **Confirmation prompts** - Prevents accidental deletions
-- ✅ **Real-time feedback** - Immediate operation results
-
-## Configuration
-
-### Default Hotspot Settings
-
-- **SSID**: JLBMaritime-AIS
-- **Password**: Admin123
-- **IP Address**: 192.168.4.1
-- **DHCP Range**: 192.168.4.2 - 192.168.4.20
-
-### Default Login Credentials
-
-- **Username**: JLBMaritime
-- **Password**: Admin
-
-### AIS Configuration
-
-The serial port is fixed at `/dev/serial0` and cannot be edited via the web interface for security.
-
-Endpoints are configured through the web interface with:
-- **Name**: User-friendly identifier
-- **IP Address**: Target device IP
-- **Port**: Target port number
-- **Enabled**: Whether endpoint is active
-
-## Project Structure
-
-```
-AIS-WiFi-Manager/
-├── README.md                      # This file
-├── LICENSE                        # MIT License
-├── .gitignore                     # Git ignore patterns
-├── requirements.txt               # Python dependencies
-├── install.sh                     # Installation script
-├── uninstall.sh                   # Uninstallation script
-├── run.py                         # Application entry point
-├── ais_config.conf                # AIS configuration
-├── logo.png                       # JLBMaritime logo
-├── app/
-│   ├── __init__.py               # Flask initialization
-│   ├── routes.py                 # All API routes
-│   ├── wifi_manager.py           # WiFi operations (wlan0)
-│   ├── ais_manager.py            # AIS multi-endpoint manager
-│   ├── ais_config_manager.py     # Config backup & management
-│   ├── network_diagnostics.py    # Network diagnostics
-│   ├── database.py               # SQLite database
-│   ├── templates/
-│   │   ├── base.html             # Base template
-│   │   ├── index.html            # WiFi Manager page
-│   │   ├── ais_config.html       # AIS Configuration page
-│   │   └── ais_logs.html         # AIS Logs viewer
-│   └── static/
-│       ├── css/style.css         # Unified styling
-│       ├── js/app.js             # WiFi functionality
-│       ├── js/ais.js             # AIS functionality
-│       └── logo.png              # Logo
-├── service/
-│   └── ais-wifi-manager.service  # Systemd service
-├── examples/
-│   └── ais_config.conf.example   # Example configuration
-└── docs/
-    └── (documentation files)
-```
-
-## API Documentation
-
-### WiFi Endpoints
-
-- `GET /api/scan` - Scan for networks
-- `POST /api/rescan` - Trigger new scan
-- `GET /api/current` - Get current connection
-- `GET /api/saved` - Get saved networks
-- `POST /api/connect` - Connect to network
-- `POST /api/forget` - Forget network
-- `POST /api/ping` - Run ping test
-- `GET /api/diagnostics` - Get network diagnostics
-
-### AIS Endpoints
-
-- `GET /api/ais/status` - Get service status
-- `POST /api/ais/start` - Start service
-- `POST /api/ais/stop` - Stop service
-- `POST /api/ais/restart` - Restart service
-- `GET /api/ais/logs` - Get service logs
-- `GET /api/ais/endpoints` - List all endpoints
-- `POST /api/ais/endpoints` - Add endpoint
-- `PUT /api/ais/endpoints/<id>` - Update endpoint
-- `DELETE /api/ais/endpoints/<id>` - Delete endpoint
-- `POST /api/ais/endpoints/<id>/toggle` - Toggle endpoint
-
-## Service Management
-
-### Check Status
-```bash
-sudo systemctl status ais-wifi-manager
-```
-
-### Start/Stop/Restart
-```bash
-sudo systemctl start ais-wifi-manager
-sudo systemctl stop ais-wifi-manager
-sudo systemctl restart ais-wifi-manager
-```
-
-### View Logs
-```bash
-sudo journalctl -u ais-wifi-manager -f
-```
-
-### Enable/Disable Auto-Start
-```bash
-sudo systemctl enable ais-wifi-manager
-sudo systemctl disable ais-wifi-manager
-```
-
-## Troubleshooting
-
-### Hotspot Not Appearing
-
-1. Check hostapd status:
-```bash
-sudo systemctl status hostapd
-```
-
-2. Verify wlan1 interface:
-```bash
-ip addr show wlan1
-```
-
-3. Restart services:
-```bash
-sudo systemctl restart hostapd
-sudo systemctl restart dnsmasq
-```
-
-### Cannot Access Web Interface
-
-1. Ensure connected to hotspot (JLBMaritime-AIS)
-2. Try IP address: `http://192.168.4.1`
-3. Check if service is running:
-```bash
-sudo systemctl status ais-wifi-manager
-```
-
-### AIS Not Forwarding Data
-
-1. Check serial port connection
-2. Verify endpoints are enabled
-3. View logs for errors:
-```bash
-sudo journalctl -u ais-wifi-manager -n 50
-```
-
-## Security Considerations
-
-- Change default credentials before deployment
-- Use HTTPS for production (requires SSL certificate)
-- Limit hotspot access to trusted devices
-- Consider MAC address filtering
-- Keep system packages updated
-- Review and restrict API access if needed
-
-## Uninstallation
-
-To remove AIS-WiFi Manager:
-
-```bash
-cd AIS-WiFi-Manager
-sudo bash uninstall.sh
-```
-
-## Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-For issues, questions, or contributions, please open an issue on GitHub.
-
-## Acknowledgments
-
-- Original AIS Server project for AIS data forwarding concept
-- Original Hotspot WiFi Manager for network management interface
-- dAISy HAT project for affordable AIS reception
-- Raspberry Pi Foundation for excellent single-board computers
-
-## Changelog
-
-### Version 1.0.0 (Initial Release)
-- Unified AIS forwarding and WiFi management
-- Multi-endpoint AIS data forwarding
-- Web-based endpoint configuration
-- Real-time status monitoring
-- Configuration backup system
-- Auto-start systemd service
-- Mobile-responsive design
-- Comprehensive documentation
+Browser- and CLI-driven Wi-Fi + AIS configuration tool for a Raspberry Pi
+running a dAISy HAT (or any AIS receiver on a serial port).
+
+> **You probably want to read this section first if you're upgrading.** The
+> install layout, default login flow, port (80, not 5000), and recovery
+> commands are all new.
 
 ---
 
-**Developed for JLBMaritime AIS ADS-B Project**
+## What changed in this version
 
-**Raspberry Pi 4B | 64-bit Raspberry Pi OS (Bookworm) | Python 3 | Flask**
+This drop is largely a stability + security pass driven by the AIS Server
+brief.  The headline items:
+
+| # | Area | What changed | Why it matters |
+|---|------|--------------|----------------|
+| 1 | **Auth** | Real session-based login (Flask-Login + bcrypt) replacing HTTP-Basic. Default `JLBMaritime / Admin` is **force-changed on first login**. | Old basic-auth was checked against a plaintext on-disk password and the credentials prompt re-appeared on every refresh. |
+| 2 | **Sessions** | Persistent random `SECRET_KEY` at `/opt/ais-wifi-manager/secret_key` (mode 600). | Service restarts no longer kick everyone out. |
+| 3 | **Web server** | `waitress` instead of Werkzeug debug server. | Werkzeug is not safe for unattended long-running use; that was the most likely cause of the "UI hangs after a few hours" bug. |
+| 4 | **Watchdog** | systemd `WatchdogSec=60` + `sdnotify` ping. | If the request loop ever wedges, systemd restarts us. |
+| 5 | **AIS forwarding** | Persistent TCP per endpoint, exponential backoff, NMEA checksum filter, optional `\s:NODE_ID*HH\` tag-block, configurable baud rate. | The original opened/closed a socket *per sentence* — fine on LAN, terrible across Tailscale. |
+| 6 | **Endpoint reload** | `reload_endpoints()` diffs config in place. | Adding/removing endpoints used to restart the service and drop a few seconds of data. |
+| 7 | **Wi-Fi shell-injection** | All `nmcli` calls go through a `shell=False` helper. | SSIDs / passwords with `;` `$` `` ` `` could previously inject commands. |
+| 8 | **Wi-Fi freeze** | Power-save permanently disabled (NM drop-in *and* oneshot fallback). | Mitigates the well-known brcmfmac freeze after several hours on the Pi 4B. |
+| 9 | **DB** | SQLite WAL + bcrypt `users` table + atomic config writes + capped backups. | Power-loss-during-write no longer truncates `ais_config.conf` to zero bytes. |
+| 10 | **Logs** | Bounded `deque(maxlen=200)`, single `logging.basicConfig`, `journald` `Storage=persistent`. | No more list-slice memory churn; logs survive reboots. |
+| 11 | **Recovery** | `sudo ais-wifi-cli reset-password` resets to default and forces re-change. | If you forget your password, you no longer have to reflash the SD card. |
+| 12 | **Hotspot password** | Randomised at install time, stored mode 600 at `/opt/ais-wifi-manager/HOTSPOT_PASSWORD.txt`, retrievable via `sudo ais-wifi-cli show-hotspot`. | Old install hard-coded `JLBMaritime` for the AP — visible in the repo. |
+| 13 | **Health** | `GET /healthz` (unauthenticated) returns 200 only when forwarder + serial are alive. | Useful for external monitors / Tailscale Serve probes. |
+
+---
+
+## Repository layout
+
+```
+.
+├── app/                         # Flask application package
+│   ├── __init__.py              # App factory, persistent SECRET_KEY, login mgr
+│   ├── auth.py                  # /login, /logout, /change-password
+│   ├── routes.py                # Pages + JSON APIs (all @login_required)
+│   ├── ais_manager.py           # Persistent-TCP forwarder, NMEA checksum filter
+│   ├── ais_config_manager.py    # Atomic-write config, validated endpoints
+│   ├── wifi_manager.py          # nmcli wrapper (shell=False)
+│   ├── network_diagnostics.py   # ping / iface status / DNS / gateway
+│   ├── database.py              # SQLite (WAL) — saved networks + users
+│   ├── _shellutil.py            # Shared shell=False subprocess helper
+│   ├── static/                  # CSS / JS / images
+│   └── templates/               # Jinja2 templates
+├── cli/
+│   └── ais_wifi_cli.py          # Interactive + non-interactive CLI
+├── service/
+│   ├── ais-wifi-manager.service          # Main unit (Type=notify, watchdog)
+│   ├── ais-wifi-powersave-off.service    # Oneshot powersave-off fallback
+│   └── wifi-powersave-off.conf           # NM drop-in (wifi.powersave=2)
+├── run.py                       # Entry point — waitress + sdnotify
+├── requirements.txt
+├── install.sh                   # Idempotent installer (venv, capset, etc.)
+├── uninstall.sh
+└── README.md                    # This file
+```
+
+---
+
+## Installation
+
+Tested on **Raspberry Pi OS Bookworm (64-bit)**, fresh image.
+
+```bash
+# 1. Get the code
+sudo apt-get update
+sudo apt-get install -y git
+git clone https://github.com/JLBMaritime/AIS-WiFi-Manager.git
+cd AIS-WiFi-Manager
+
+# 2. Run the installer (add --with-tailscale if you want it; see below)
+sudo ./install.sh
+# or:
+# sudo ./install.sh --with-tailscale
+```
+
+The installer will:
+
+1. `apt install` Python, NetworkManager, hostapd, dnsmasq, iw, wireless-tools,
+   git, libcap2-bin (for `setcap`).
+2. Turn on persistent journald (`/var/log/journal`).
+3. Copy the project to `/opt/ais-wifi-manager`.
+4. Create a venv at `/opt/ais-wifi-manager/.venv` and install Python deps.
+5. `setcap cap_net_bind_service=+ep` on the venv `python3` so the service
+   can bind port 80 without being root.
+6. Install the `ais-wifi-cli` shim in `/usr/local/bin`.
+7. Drop a NetworkManager config that **permanently disables Wi-Fi
+   power-save** (the brcmfmac freeze mitigation).
+8. Generate a random hotspot password (saved mode 600 in
+   `/opt/ais-wifi-manager/HOTSPOT_PASSWORD.txt`).
+9. Install + enable both systemd units.
+
+When it finishes:
+
+```
+Web UI:   http://AIS.local/   (or http://192.168.4.1 in hotspot mode)
+Login:    JLBMaritime / Admin    ← will be forced to change on first sign-in
+```
+
+---
+
+## Tailscale (recommended)
+
+The AIS Server brief calls for a secure tail-net between every node and the
+central server.  Tailscale is the easiest way to do that.
+
+```bash
+sudo ./install.sh --with-tailscale     # if you didn't choose it earlier
+sudo tailscale up --ssh                # bring up + opt into Tailscale SSH
+```
+
+### Suggested ACLs / tags
+
+Define the following tags in your tail-net policy and you can restrict the
+nodes to *only* talking to the server:
+
+```jsonc
+{
+  "tagOwners": {
+    "tag:ais-node":   ["autogroup:admin"],
+    "tag:ais-server": ["autogroup:admin"],
+  },
+  "acls": [
+    // Nodes may only push NMEA to the server.
+    { "action": "accept",
+      "src":    ["tag:ais-node"],
+      "dst":    ["tag:ais-server:80,5000-5100"] },
+    // The server may not initiate connections back to nodes.
+    { "action": "accept",
+      "src":    ["autogroup:admin"],
+      "dst":    ["*:*"] },
+  ],
+}
+```
+
+The server then publishes its web UI over the tailnet alone:
+
+```bash
+sudo tailscale serve --bg --https=443 http://localhost:80
+```
+
+---
+
+## Recovery
+
+* **Forgot the web password.**
+
+  ```bash
+  ssh pi@AIS.local
+  sudo ais-wifi-cli reset-password
+  ```
+
+  This restores `JLBMaritime / Admin` and forces a change on next login.
+  To set an explicit password instead:
+  `sudo ais-wifi-cli reset-password --to MyNewPassword`.
+
+* **Forgot the hotspot password.**
+
+  ```bash
+  sudo ais-wifi-cli show-hotspot
+  ```
+
+* **Service is broken.**
+
+  ```bash
+  sudo journalctl -u ais-wifi-manager -n 200 --no-pager
+  ais-wifi-cli health
+  sudo systemctl restart ais-wifi-manager
+  ```
+
+---
+
+## Operational notes
+
+* **The web UI runs on port 80**, not 5000.  If port 80 is unavailable
+  (because something else has bound it), the service falls back to 5000.
+* **Default credentials change on first login** — there is no way to
+  bypass the change-password screen short of `reset-password` over SSH.
+* **NMEA checksums are enforced.**  Sentences with bad `*HH` checksums are
+  dropped and counted (visible on the AIS dashboard) but never forwarded.
+* **Endpoint config edits don't restart the forwarder.**  Persistent TCP
+  connections are diffed and adjusted in place.
+* **Per-endpoint stats** (sent / failed / connected / last error) are
+  surfaced via `/api/ais/endpoints` and the AIS Configuration page.
+
+---
+
+## Uninstall
+
+```bash
+sudo ./uninstall.sh
+```
+
+This stops both services, removes the unit files, deletes the CLI shim,
+optionally deletes `/opt/ais-wifi-manager` (config + saved networks),
+and optionally tears down the hotspot.

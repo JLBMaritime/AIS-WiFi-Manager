@@ -1,16 +1,41 @@
 [Unit]
-Description=AIS-WiFi Manager Service
-After=network.target
+Description=AIS-WiFi Manager
+Documentation=https://github.com/JLBMaritime/AIS-WiFi-Manager
+After=network-online.target NetworkManager.service
+Wants=network-online.target
 
 [Service]
-Type=simple
-User=root
+Type=notify
 WorkingDirectory=/opt/ais-wifi-manager
-ExecStart=/usr/bin/python3 /opt/ais-wifi-manager/run.py
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ais-wifi-manager/.venv/bin/python /opt/ais-wifi-manager/run.py
 Restart=always
-RestartSec=10
+RestartSec=5
+
+# --- Watchdog (kicked from sdnotify in run.py) ---
+WatchdogSec=60
+NotifyAccess=main
+
+# --- Resource limits ---
+MemoryHigh=256M
+MemoryMax=512M
+TasksMax=512
+LimitNOFILE=65536
+
+# --- Hardening ---
+# Run as root for now (Wi-Fi management) — but with the rest locked down.
+User=root
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=ais-wifi-manager
 
 [Install]
 WantedBy=multi-user.target

@@ -1,69 +1,53 @@
 #!/bin/bash
-# AIS-WiFi Manager Uninstallation Script
+# AIS-WiFi Manager — uninstall script.
+set -euo pipefail
 
-set -e
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-# Configuration Variables
 INSTALL_DIR="/opt/ais-wifi-manager"
 SERVICE_NAME="ais-wifi-manager"
+PS_SERVICE_NAME="ais-wifi-powersave-off"
 
-echo "========================================="
-echo "AIS-WiFi Manager Uninstallation"
-echo "========================================="
-echo ""
-
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then 
-    echo -e "${RED}Error: This script must be run as root (use sudo)${NC}"
-    exit 1
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}Run with sudo.${NC}"; exit 1
 fi
 
-echo -e "${YELLOW}This will remove AIS-WiFi Manager from your system.${NC}"
-read -p "Continue with un installation? (y/n) " -n 1 -r
+echo "========================================="
+echo " AIS-WiFi Manager — uninstallation"
+echo "========================================="
+
+read -p "Continue with uninstallation? (y/n) " -n 1 -r REPLY
 echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    exit 1
-fi
+[[ "$REPLY" =~ ^[Yy]$ ]] || exit 1
 
-echo -e "${GREEN}Step 1: Stopping and disabling service...${NC}"
-systemctl stop ${SERVICE_NAME} 2>/dev/null || true
-systemctl disable ${SERVICE_NAME} 2>/dev/null || true
-
-echo -e "${GREEN}Step 2: Removing service file...${NC}"
+echo -e "${GREEN}[1/4] Stopping services…${NC}"
+systemctl stop    ${SERVICE_NAME}    2>/dev/null || true
+systemctl disable ${SERVICE_NAME}    2>/dev/null || true
+systemctl stop    ${PS_SERVICE_NAME} 2>/dev/null || true
+systemctl disable ${PS_SERVICE_NAME} 2>/dev/null || true
 rm -f /etc/systemd/system/${SERVICE_NAME}.service
+rm -f /etc/systemd/system/${PS_SERVICE_NAME}.service
 systemctl daemon-reload
 
-echo -e "${GREEN}Step 3: Removing installation directory...${NC}"
-rm -f /usr/local/bin/ais-wifi-cli
-rm -rf $INSTALL_DIR
+echo -e "${GREEN}[2/4] Removing power-save drop-in…${NC}"
+rm -f /etc/NetworkManager/conf.d/wifi-powersave-off.conf
 
-echo -e "${GREEN}Step 4: Cleaning up hotspot configuration...${NC}"
-read -p "Remove hotspot configuration? (y/n) " -n 1 -r
+echo -e "${GREEN}[3/4] Removing CLI shim and install dir…${NC}"
+rm -f /usr/local/bin/ais-wifi-cli
+read -p "Also delete $INSTALL_DIR (config + saved networks)? (y/n) " -n 1 -r
 echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    systemctl stop hostapd 2>/dev/null || true
-    systemctl stop dnsmasq 2>/dev/null || true
-    systemctl disable hostapd 2>/dev/null || true
-    systemctl disable dnsmasq 2>/dev/null || true
-    
-    rm -f /etc/hostapd/hostapd.conf
-    rm -f /etc/dnsmasq.conf
-    
-    nmcli connection delete Hotspot 2>/dev/null || true
-    
-    echo -e "${GREEN}Hotspot configuration removed${NC}"
+if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+    rm -rf "$INSTALL_DIR"
 fi
 
-echo ""
-echo -e "${GREEN}=========================================${NC}"
-echo -e "${GREEN}Uninstallation Complete!${NC}"
-echo -e "${GREEN}=========================================${NC}"
-echo ""
-echo "AIS-WiFi Manager has been removed from your system."
-echo ""
+echo -e "${GREEN}[4/4] Hotspot cleanup (optional)…${NC}"
+read -p "Remove hotspot configuration? (y/n) " -n 1 -r
+echo
+if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+    systemctl stop    hostapd dnsmasq 2>/dev/null || true
+    systemctl disable hostapd dnsmasq 2>/dev/null || true
+    rm -f /etc/hostapd/hostapd.conf /etc/dnsmasq.conf
+    nmcli connection delete Hotspot 2>/dev/null || true
+fi
+
+echo -e "${GREEN}Done.${NC}"

@@ -1,267 +1,264 @@
+"""Flask routes for the WiFi Manager + AIS Configuration web interface.
+
+Public endpoints: ``/login``, ``/logout``, ``/static/*`` (handled by Flask).
+Everything else requires a logged-in session via ``@login_required``.
+
+API endpoint changes vs. the original
+-------------------------------------
+* No more ``ais_manager.restart()`` after every config edit — we call
+  ``ais_manager.reload_endpoints()`` instead.  Forwarding never pauses,
+  the serial port stays open.
+* ``GET /healthz`` (unauthenticated) returns 200 only when the forwarder
+  thread is alive *and* the serial port still exists.  Useful for
+  external watchdogs / Tailscale serve health-checks.
+* JSON API endpoints return 401 ``{"success":false,"message":"login required"}``
+  when unauthenticated, so the existing JS continues to work without an
+  auth-aware redirect.
 """
-Flask routes for WiFi Manager and AIS Configuration web interface and API
-"""
-from flask import render_template, jsonify, request
-from app import app, auth
-from app.wifi_manager import (
-    scan_networks, get_current_connection, get_connection_ip,
-    connect_to_network, forget_network, rescan_networks
-)
-from app.network_diagnostics import ping_test, get_full_diagnostics
-from app.database import get_saved_networks, init_db
-from app.ais_manager import ais_manager
+from __future__ import annotations
+
+import logging
+
+from flask import jsonify, redirect, render_template, request, url_for
+from flask_login import current_user, login_required
+
+from app import app
 from app.ais_config_manager import (
-    get_all_endpoints, add_endpoint, update_endpoint, 
-    delete_endpoint, toggle_endpoint, load_ais_config
+    add_endpoint, delete_endpoint, get_all_endpoints, toggle_endpoint,
+    update_endpoint,
+)
+from app.ais_manager import ais_manager
+from app.database import get_saved_networks, init_db
+from app.network_diagnostics import get_full_diagnostics, ping_test
+from app.wifi_manager import (
+    connect_to_network, forget_network, get_connection_ip,
+    get_current_connection, rescan_networks, scan_networks,
 )
 
-# Initialize database on startup
+log = logging.getLogger(__name__)
+
+# Initialise database on first import.
 init_db()
 
-# ===== WiFi Manager Routes =====
 
+# ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+def _api_auth_required(view):
+    """Decorator that returns JSON 401 instead of redirecting to /login."""
+    from functools import wraps
+
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return jsonify({'success': False,
+                            'message': 'login required'}), 401
+        return view(*args, **kwargs)
+    return wrapper
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+@app.route('/healthz')
+def healthz():
+    ok = ais_manager.healthy()
+    return (jsonify({'ok': ok,
+                     'running': ais_manager.running,
+                     'serial_port': ais_manager.serial_port}),
+            200 if ok else 503)
+
+
+# ---------------------------------------------------------------------------
+# Pages
+# ---------------------------------------------------------------------------
 @app.route('/')
-@auth.login_required
+@login_required
 def index():
-    """Serve the main WiFi management interface"""
     return render_template('index.html')
 
+
+@app.route('/ais')
+@login_required
+def ais_config():
+    return render_template('ais_config.html')
+
+
+@app.route('/ais/logs')
+@login_required
+def ais_logs():
+    return render_template('ais_logs.html')
+
+
+# ---------------------------------------------------------------------------
+# WiFi APIs
+# ---------------------------------------------------------------------------
 @app.route('/api/scan', methods=['GET'])
-@auth.login_required
+@_api_auth_required
 def api_scan():
-    """API endpoint to scan for available networks"""
-    networks = scan_networks()
-    return jsonify({'success': True, 'networks': networks})
+    return jsonify({'success': True, 'networks': scan_networks()})
+
 
 @app.route('/api/rescan', methods=['POST'])
-@auth.login_required
+@_api_auth_required
 def api_rescan():
-    """API endpoint to trigger a new scan"""
-    networks = rescan_networks()
-    return jsonify({'success': True, 'networks': networks})
+    return jsonify({'success': True, 'networks': rescan_networks()})
+
 
 @app.route('/api/current', methods=['GET'])
-@auth.login_required
+@_api_auth_required
 def api_current():
-    """API endpoint to get current connection"""
-    current = get_current_connection()
-    ip = get_connection_ip()
     return jsonify({
         'success': True,
-        'current': current,
-        'ip': ip
+        'current': get_current_connection(),
+        'ip':      get_connection_ip(),
     })
 
+
 @app.route('/api/saved', methods=['GET'])
-@auth.login_required
+@_api_auth_required
 def api_saved():
-    """API endpoint to get saved networks"""
-    saved = get_saved_networks()
-    return jsonify({'success': True, 'networks': saved})
+    return jsonify({'success': True, 'networks': get_saved_networks()})
+
 
 @app.route('/api/connect', methods=['POST'])
-@auth.login_required
+@_api_auth_required
 def api_connect():
-    """API endpoint to connect to a network"""
-    data = request.json
+    data = request.get_json(silent=True) or {}
     ssid = data.get('ssid')
     password = data.get('password')
-    
     if not ssid:
         return jsonify({'success': False, 'message': 'SSID is required'}), 400
-    
     success, message = connect_to_network(ssid, password)
     return jsonify({'success': success, 'message': message})
 
+
 @app.route('/api/forget', methods=['POST'])
-@auth.login_required
+@_api_auth_required
 def api_forget():
-    """API endpoint to forget a network"""
-    data = request.json
+    data = request.get_json(silent=True) or {}
     ssid = data.get('ssid')
-    
     if not ssid:
         return jsonify({'success': False, 'message': 'SSID is required'}), 400
-    
     success, message = forget_network(ssid)
     return jsonify({'success': success, 'message': message})
 
+
 @app.route('/api/ping', methods=['POST'])
-@auth.login_required
+@_api_auth_required
 def api_ping():
-    """API endpoint to run a ping test"""
-    data = request.json
-    host = data.get('host', '8.8.8.8')
-    count = data.get('count', 4)
-    
-    result = ping_test(host, count)
-    return jsonify(result)
+    data = request.get_json(silent=True) or {}
+    return jsonify(ping_test(data.get('host', '8.8.8.8'),
+                             data.get('count', 4)))
+
 
 @app.route('/api/diagnostics', methods=['GET'])
-@auth.login_required
+@_api_auth_required
 def api_diagnostics():
-    """API endpoint to get network diagnostics"""
-    diagnostics = get_full_diagnostics()
-    return jsonify({'success': True, 'diagnostics': diagnostics})
+    return jsonify({'success': True, 'diagnostics': get_full_diagnostics()})
+
 
 @app.route('/api/status', methods=['GET'])
-@auth.login_required
+@_api_auth_required
 def api_status():
-    """API endpoint to get complete system status"""
-    current = get_current_connection()
-    ip = get_connection_ip()
-    saved = get_saved_networks()
-    
     return jsonify({
         'success': True,
-        'current': current,
-        'ip': ip,
-        'saved_count': len(saved)
+        'current': get_current_connection(),
+        'ip':      get_connection_ip(),
+        'saved_count': len(get_saved_networks()),
     })
 
-# ===== AIS Configuration Routes =====
 
-@app.route('/ais')
-@auth.login_required
-def ais_config():
-    """Serve the AIS configuration interface"""
-    return render_template('ais_config.html')
-
-@app.route('/ais/logs')
-@auth.login_required
-def ais_logs():
-    """Serve the AIS logs viewer interface"""
-    return render_template('ais_logs.html')
-
+# ---------------------------------------------------------------------------
+# AIS APIs
+# ---------------------------------------------------------------------------
 @app.route('/api/ais/status', methods=['GET'])
-@auth.login_required
+@_api_auth_required
 def api_ais_status():
-    """API endpoint to get AIS service status"""
-    status = ais_manager.get_status()
-    return jsonify({'success': True, 'status': status})
+    return jsonify({'success': True, 'status': ais_manager.get_status()})
+
 
 @app.route('/api/ais/start', methods=['POST'])
-@auth.login_required
+@_api_auth_required
 def api_ais_start():
-    """API endpoint to start AIS service"""
     success, message = ais_manager.start()
     return jsonify({'success': success, 'message': message})
 
+
 @app.route('/api/ais/stop', methods=['POST'])
-@auth.login_required
+@_api_auth_required
 def api_ais_stop():
-    """API endpoint to stop AIS service"""
     success, message = ais_manager.stop()
     return jsonify({'success': success, 'message': message})
 
+
 @app.route('/api/ais/restart', methods=['POST'])
-@auth.login_required
+@_api_auth_required
 def api_ais_restart():
-    """API endpoint to restart AIS service"""
     success, message = ais_manager.restart()
     return jsonify({'success': success, 'message': message})
 
+
 @app.route('/api/ais/logs', methods=['GET'])
-@auth.login_required
+@_api_auth_required
 def api_ais_logs():
-    """API endpoint to get AIS logs"""
     count = request.args.get('count', 100, type=int)
-    logs = ais_manager.get_logs(count)
-    return jsonify({'success': True, 'logs': logs})
+    return jsonify({'success': True, 'logs': ais_manager.get_logs(count)})
+
 
 @app.route('/api/ais/endpoints', methods=['GET'])
-@auth.login_required
+@_api_auth_required
 def api_ais_endpoints():
-    """API endpoint to get all AIS endpoints"""
     endpoints = get_all_endpoints()
     status = ais_manager.get_status()
-    
-    # Merge endpoint configuration with connection status
-    for endpoint in endpoints:
-        endpoint_id = endpoint['id']
-        if endpoint_id in status['endpoint_status']:
-            endpoint['status'] = status['endpoint_status'][endpoint_id]
-        else:
-            endpoint['status'] = {'connected': False, 'last_attempt': None, 'error': None}
-    
+    for ep in endpoints:
+        ep['status'] = status['endpoint_status'].get(
+            ep['id'],
+            {'connected': False, 'last_attempt': None, 'error': None},
+        )
     return jsonify({'success': True, 'endpoints': endpoints})
 
+
 @app.route('/api/ais/endpoints', methods=['POST'])
-@auth.login_required
+@_api_auth_required
 def api_ais_add_endpoint():
-    """API endpoint to add a new AIS endpoint"""
-    data = request.json
-    name = data.get('name')
-    ip = data.get('ip')
-    port = data.get('port')
-    enabled = data.get('enabled', True)
-    
-    if not name or not ip or not port:
-        return jsonify({'success': False, 'message': 'Name, IP, and port are required'}), 400
-    
-    try:
-        port = int(port)
-        if port < 1 or port > 65535:
-            return jsonify({'success': False, 'message': 'Port must be between 1 and 65535'}), 400
-    except ValueError:
-        return jsonify({'success': False, 'message': 'Port must be a valid number'}), 400
-    
-    success, endpoint_id, message = add_endpoint(name, ip, port, enabled)
-    
+    data = request.get_json(silent=True) or {}
+    success, endpoint_id, message = add_endpoint(
+        data.get('name'), data.get('ip'), data.get('port'),
+        bool(data.get('enabled', True)),
+    )
     if success and ais_manager.is_running():
-        # Restart AIS service to apply changes
-        ais_manager.restart()
-    
-    return jsonify({'success': success, 'message': message, 'endpoint_id': endpoint_id})
+        ais_manager.reload_endpoints()
+    return jsonify({'success': success, 'message': message,
+                    'endpoint_id': endpoint_id})
+
 
 @app.route('/api/ais/endpoints/<endpoint_id>', methods=['PUT'])
-@auth.login_required
+@_api_auth_required
 def api_ais_update_endpoint(endpoint_id):
-    """API endpoint to update an existing AIS endpoint"""
-    data = request.json
-    name = data.get('name')
-    ip = data.get('ip')
-    port = data.get('port')
-    enabled = data.get('enabled', True)
-    
-    if not name or not ip or not port:
-        return jsonify({'success': False, 'message': 'Name, IP, and port are required'}), 400
-    
-    try:
-        port = int(port)
-        if port < 1 or port > 65535:
-            return jsonify({'success': False, 'message': 'Port must be between 1 and 65535'}), 400
-    except ValueError:
-        return jsonify({'success': False, 'message': 'Port must be a valid number'}), 400
-    
-    success, message = update_endpoint(endpoint_id, name, ip, port, enabled)
-    
+    data = request.get_json(silent=True) or {}
+    success, message = update_endpoint(
+        endpoint_id, data.get('name'), data.get('ip'),
+        data.get('port'), bool(data.get('enabled', True)),
+    )
     if success and ais_manager.is_running():
-        # Restart AIS service to apply changes
-        ais_manager.restart()
-    
+        ais_manager.reload_endpoints()
     return jsonify({'success': success, 'message': message})
+
 
 @app.route('/api/ais/endpoints/<endpoint_id>', methods=['DELETE'])
-@auth.login_required
+@_api_auth_required
 def api_ais_delete_endpoint(endpoint_id):
-    """API endpoint to delete an AIS endpoint"""
     success, message = delete_endpoint(endpoint_id)
-    
     if success and ais_manager.is_running():
-        # Restart AIS service to apply changes
-        ais_manager.restart()
-    
+        ais_manager.reload_endpoints()
     return jsonify({'success': success, 'message': message})
 
+
 @app.route('/api/ais/endpoints/<endpoint_id>/toggle', methods=['POST'])
-@auth.login_required
+@_api_auth_required
 def api_ais_toggle_endpoint(endpoint_id):
-    """API endpoint to toggle an AIS endpoint enabled status"""
     success, message = toggle_endpoint(endpoint_id)
-    
     if success and ais_manager.is_running():
-        # Restart AIS service to apply changes
-        ais_manager.restart()
-    
+        ais_manager.reload_endpoints()
     return jsonify({'success': success, 'message': message})
