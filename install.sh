@@ -105,8 +105,25 @@ fi
 "$INSTALL_DIR/.venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
 
 # Allow the venv python to bind port 80 without root.
+# Notes for fresh installs:
+#   * `python -m venv` on Debian creates `.venv/bin/python3` as a *symlink*
+#     to /usr/bin/python3.X  → setcap refuses to operate on symlinks and
+#     prints "Invalid file '<path>' for capability operation".
+#   * We therefore resolve the symlink with readlink -f and apply the
+#     capability to the real binary.  This is best-effort: the unit runs
+#     as root anyway (it has to, for nmcli/hostapd), so a failure here is
+#     not fatal — we just warn and keep going.
 echo -e "${GREEN}      Granting cap_net_bind_service to venv python…${NC}"
-setcap 'cap_net_bind_service=+ep' "$INSTALL_DIR/.venv/bin/python3" || true
+REAL_PY="$(readlink -f "$INSTALL_DIR/.venv/bin/python3" 2>/dev/null || true)"
+if [ -n "$REAL_PY" ] && [ -f "$REAL_PY" ]; then
+    if setcap 'cap_net_bind_service=+ep' "$REAL_PY" 2>/dev/null; then
+        echo -e "${GREEN}      → applied to $REAL_PY${NC}"
+    else
+        echo -e "${YELLOW}      → setcap not available / refused; skipping (we run as root anyway).${NC}"
+    fi
+else
+    echo -e "${YELLOW}      → could not resolve venv python; skipping setcap.${NC}"
+fi
 
 # -- 5. CLI symlink -------------------------------------------------------
 echo -e "${GREEN}[5/9] Installing CLI shim…${NC}"
@@ -124,13 +141,30 @@ install -m 0644 "$SCRIPT_DIR/service/ais-wifi-powersave-off.service" \
     /etc/systemd/system/${PS_SERVICE_NAME}.service
 
 # -- 7. Hotspot fallback (192.168.4.1 SSID=AIS-WiFi-Manager) -------------
+# IMPORTANT (fresh-install gotcha):
+#   The original generator was
+#       tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16
+#   which crashed every fresh install on Bookworm because:
+#       head -c 16 closes the pipe early
+#       → tr is killed by SIGPIPE (exit 141)
+#       → `set -o pipefail` (top of file) propagates that 141
+#       → `set -e` aborts the entire installer silently between [7/9] and [8/9]
+#   We use `head -c 64 …` (a fixed *upstream* read that exits 0) and
+#   `cut -c1-16` for the trim, so no command in the pipeline ever sees a
+#   broken pipe.  We also wrap it in a subshell with `+pipefail` belt-and-
+#   braces in case anyone adds another head/cut/awk-piped block here later.
 echo -e "${GREEN}[7/9] Configuring fallback hotspot…${NC}"
 if [ ! -f "$HOTSPOT_PW_FILE" ]; then
-    HOTSPOT_PW="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
-    cat > "$HOTSPOT_PW_FILE" <<EOF
-SSID:     AIS-WiFi-Manager
-Password: $HOTSPOT_PW
-EOF
+    HOTSPOT_PW="$(
+        set +o pipefail
+        head -c 64 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | cut -c1-16
+    )"
+    if [ -z "$HOTSPOT_PW" ] || [ "${#HOTSPOT_PW}" -lt 16 ]; then
+        # Extremely unlikely fallback (e.g. /dev/urandom missing in chroot).
+        HOTSPOT_PW="$(date +%s%N | sha256sum | cut -c1-16)"
+    fi
+    printf 'SSID:     AIS-WiFi-Manager\nPassword: %s\n' "$HOTSPOT_PW" \
+        > "$HOTSPOT_PW_FILE"
     chmod 600 "$HOTSPOT_PW_FILE"
     echo -e "${YELLOW}      Generated hotspot password: $HOTSPOT_PW${NC}"
     echo -e "${YELLOW}      (saved to $HOTSPOT_PW_FILE; retrieve with"
@@ -156,6 +190,25 @@ if [ "$WITH_TAILSCALE" = 1 ]; then
     echo -e "${YELLOW}      Run 'sudo tailscale up' afterwards to join your tail-net.${NC}"
 else
     echo -e "${GREEN}[9/9] Skipping Tailscale (use --with-tailscale to install).${NC}"
+fi
+
+# -- Post-flight check ----------------------------------------------------
+# Loud failure beats silent failure.  If the unit didn't come up, dump the
+# last 30 journal lines and exit non-zero so packaging tools / CI / humans
+# notice immediately.
+echo -e "${GREEN}      Verifying ${SERVICE_NAME}…${NC}"
+sleep 2
+if systemctl is-active --quiet "${SERVICE_NAME}"; then
+    echo -e "${GREEN}      → ${SERVICE_NAME} is active.${NC}"
+else
+    echo -e "${RED}=========================================${NC}"
+    echo -e "${RED} ${SERVICE_NAME} is NOT running after install.${NC}"
+    echo -e "${RED}=========================================${NC}"
+    echo "Last 30 lines from the unit's journal:"
+    journalctl -xeu "${SERVICE_NAME}" -n 30 --no-pager || true
+    echo
+    echo "Once the cause is fixed, re-run: sudo ./install.sh"
+    exit 1
 fi
 
 # -- Done -----------------------------------------------------------------
