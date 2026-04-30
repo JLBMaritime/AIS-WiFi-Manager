@@ -148,12 +148,68 @@ exec "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/cli/ais_wifi_cli.py" "\$@"
 EOF
 chmod +x /usr/local/bin/ais-wifi-cli
 
-# -- 6. Wi-Fi power-save off ---------------------------------------------
+# -- 6. Wi-Fi power-save off + NM DNS hardening --------------------------
 echo -e "${GREEN}[6/9] Disabling Wi-Fi power-save on wlan0…${NC}"
 install -m 0644 "$SCRIPT_DIR/service/wifi-powersave-off.conf" \
     /etc/NetworkManager/conf.d/wifi-powersave-off.conf
 install -m 0644 "$SCRIPT_DIR/service/ais-wifi-powersave-off.service" \
     /etc/systemd/system/${PS_SERVICE_NAME}.service
+
+# Lock NetworkManager's DNS plugin to the simple built-in writer BEFORE
+# anything (Tailscale, in particular) gets a chance to re-write it.
+#
+# Why this matters:
+#   Tailscale's installer sniffs NM and, if no `dns=` is declared in
+#   /etc/NetworkManager/conf.d/, drops a file there with
+#       dns=systemd-resolved
+#   to make MagicDNS work via systemd-resolved.  RPi OS *Lite* doesn't
+#   ship systemd-resolved enabled (it's a Desktop-image default), so on
+#   the next reboot NM tries to load the resolved plugin, fails, and
+#   NetworkManager.service exits [FAILED].  No NM = no wlan0 = no wlan1
+#   = no AP, and `ping google.com` returns "Temporary failure in name
+#   resolution".  Looks like a dead Pi; isn't.
+#
+#   By pre-declaring dns=default + rc-manager=file BEFORE Tailscale
+#   installs, Tailscale's installer sees an existing dns= setting and
+#   leaves it alone.  We also scrub the file post-Tailscale-install in
+#   step 9 belt-and-braces.
+#
+echo -e "${GREEN}      Hardening NetworkManager DNS plugin (dns=default)…${NC}"
+install -m 0644 /dev/stdin /etc/NetworkManager/conf.d/00-dns.conf <<'EOF'
+# Managed by AIS-WiFi-Manager installer.
+# Force NM to write /etc/resolv.conf itself (no systemd-resolved required).
+# Do NOT replace this with dns=systemd-resolved on RPi OS Lite — that image
+# does not have systemd-resolved enabled and NetworkManager will refuse to
+# start.  See install.sh step 6/9 for the long story.
+[main]
+dns=default
+rc-manager=file
+EOF
+
+# If a previous Tailscale install on this image already dropped the bad
+# file, remove it now so the upcoming `systemctl restart NetworkManager`
+# (implicit in step 7) can succeed.
+rm -f /etc/NetworkManager/conf.d/tailscale.conf
+
+# Repair /etc/resolv.conf if it's a dangling symlink to
+# /run/systemd/resolve/stub-resolv.conf (which doesn't exist on Lite).
+if [ -L /etc/resolv.conf ] && [ ! -e /etc/resolv.conf ]; then
+    echo -e "${YELLOW}      /etc/resolv.conf is a dangling symlink — replacing with a real file.${NC}"
+    rm -f /etc/resolv.conf
+    printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
+    chmod 644 /etc/resolv.conf
+fi
+
+# Don't let *-wait-online services hold up boot for minutes if any
+# interface (tailscale0 in particular) is slow to come up.  Our app
+# supervises its own networking — the boot path doesn't need to block.
+systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
+systemctl mask    systemd-networkd-wait-online.service 2>/dev/null || true
+
+# Reload NM so it picks up dns=default before we proceed.
+systemctl restart NetworkManager 2>/dev/null || true
+sleep 1
+
 
 # -- 7. Always-on management hotspot on wlan1 -----------------------------
 #
@@ -294,10 +350,45 @@ if [ "$WITH_TAILSCALE" = 1 ]; then
     if ! command -v tailscale >/dev/null 2>&1; then
         curl -fsSL https://tailscale.com/install.sh | sh
     fi
-    echo -e "${YELLOW}      Run 'sudo tailscale up' afterwards to join your tail-net.${NC}"
+
+    # Tailscale's installer is allowed to drop a NetworkManager conf.d
+    # snippet that says `dns=systemd-resolved`.  On RPi OS *Lite*,
+    # systemd-resolved isn't enabled — so on the next reboot NM fails
+    # to start, no Wi-Fi, no AP, the box is unreachable until you bring
+    # a monitor over.  Defended against in three places:
+    #
+    #   * Step 6 wrote 00-dns.conf with `dns=default` (newer Tailscale
+    #     installers respect an existing dns= setting and skip writing
+    #     their own snippet).
+    #   * Belt: scrub /etc/NetworkManager/conf.d/tailscale.conf if it
+    #     was written anyway (older Tailscale, or our 00-dns.conf was
+    #     missing for some reason).
+    #   * Braces: post-flight `systemctl is-active NetworkManager` below.
+    if [ -f /etc/NetworkManager/conf.d/tailscale.conf ]; then
+        echo -e "${YELLOW}      Removing /etc/NetworkManager/conf.d/tailscale.conf"
+        echo -e "      (Tailscale set dns=systemd-resolved which breaks NM on"
+        echo -e "      RPi OS Lite — see install.sh step 6 for details).${NC}"
+        rm -f /etc/NetworkManager/conf.d/tailscale.conf
+        systemctl restart NetworkManager 2>/dev/null || true
+        sleep 2
+    fi
+
+    # Confirm NM is still healthy after the Tailscale install.  If not,
+    # we surface the journal tail so a human can see why immediately
+    # rather than discovering "Pi won't boot" the next morning.
+    if ! systemctl is-active --quiet NetworkManager; then
+        echo -e "${RED}      NetworkManager is not active after Tailscale install!${NC}"
+        echo "      Last 30 NM journal lines:"
+        journalctl -u NetworkManager -n 30 --no-pager | tail -n 30 || true
+        echo -e "${RED}      Refusing to leave you with an unbootable system.${NC}"
+        exit 1
+    fi
+
+    echo -e "${YELLOW}      Run 'sudo tailscale up --ssh' afterwards to join your tail-net.${NC}"
 else
     echo -e "${GREEN}[9/9] Skipping Tailscale (use --with-tailscale to install).${NC}"
 fi
+
 
 # -- Post-flight check ----------------------------------------------------
 # Loud failure beats silent failure.  If the unit didn't come up, dump the

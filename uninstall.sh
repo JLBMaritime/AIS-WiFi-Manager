@@ -29,8 +29,14 @@ rm -f /etc/systemd/system/${SERVICE_NAME}.service
 rm -f /etc/systemd/system/${PS_SERVICE_NAME}.service
 systemctl daemon-reload
 
-echo -e "${GREEN}[2/4] Removing power-save drop-in…${NC}"
+echo -e "${GREEN}[2/4] Removing NetworkManager drop-ins…${NC}"
+# Power-save and DNS drop-ins we wrote in install.sh step 6.
 rm -f /etc/NetworkManager/conf.d/wifi-powersave-off.conf
+rm -f /etc/NetworkManager/conf.d/00-dns.conf
+# Tailscale's bad drop-in (dns=systemd-resolved) — see install.sh step 6.
+rm -f /etc/NetworkManager/conf.d/tailscale.conf
+systemctl restart NetworkManager 2>/dev/null || true
+
 
 echo -e "${GREEN}[3/4] Removing CLI shim and install dir…${NC}"
 rm -f /usr/local/bin/ais-wifi-cli

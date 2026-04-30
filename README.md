@@ -74,7 +74,6 @@ sudo apt-get update
 sudo apt-get install -y git
 git clone https://github.com/JLBMaritime/AIS-WiFi-Manager.git
 cd AIS-WiFi-Manager
-sudo chmod +x install.sh
 
 # 2. Run the installer (add --with-tailscale if you want it; see below)
 sudo ./install.sh
@@ -239,6 +238,39 @@ sudo tailscale serve --bg --https=443 http://localhost:80
   ais-wifi-cli health
   sudo systemctl restart ais-wifi-manager
   ```
+
+* **Pi won't come back up after installing Tailscale (no Wi-Fi, DNS broken).**
+
+  This is a known Tailscale-on-RPi-OS-Lite trap.  Tailscale's installer
+  drops `/etc/NetworkManager/conf.d/tailscale.conf` containing
+  `dns=systemd-resolved`, but RPi OS Lite **doesn't ship
+  systemd-resolved enabled**.  On reboot NetworkManager fails to start,
+  no Wi-Fi, no AP, `ping google.com` says *Temporary failure in name
+  resolution*.
+
+  Plug in a monitor + keyboard and run:
+  ```bash
+  sudo rm -f /etc/NetworkManager/conf.d/tailscale.conf
+  sudo tee /etc/NetworkManager/conf.d/00-dns.conf >/dev/null <<'EOF'
+  [main]
+  dns=default
+  rc-manager=file
+  EOF
+  if [ -L /etc/resolv.conf ] && [ ! -e /etc/resolv.conf ]; then
+      sudo rm -f /etc/resolv.conf
+      printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' \
+          | sudo tee /etc/resolv.conf >/dev/null
+  fi
+  sudo systemctl restart NetworkManager
+  sudo reboot
+  ```
+
+  > Fresh installs from this version of `install.sh` are immune — step 6
+  > pre-declares `dns=default` *before* invoking Tailscale, step 9
+  > scrubs `tailscale.conf` belt-and-braces, and a post-flight
+  > `systemctl is-active NetworkManager` aborts the installer (rather
+  > than leaving the box unbootable) if anything's gone wrong.
+
 
 ---
 
