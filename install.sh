@@ -171,9 +171,23 @@ apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
     python3 python3-venv python3-pip python3-dev \
     network-manager dnsmasq-base iw wireless-tools iputils-ping \
-    git ca-certificates libcap2-bin
+    git ca-certificates libcap2-bin dnsutils
+# dnsutils is for `dig`, used by `ais-wifi-cli doctor` to send a real
+# DNS query to 192.168.4.1 and verify the AP-side resolver is healthy.
+# It's a tiny package (<200 KB) and well worth carrying for the
+# diagnostic value when an iPhone refuses to join.
+
 systemctl disable --now dnsmasq 2>/dev/null || true
 systemctl disable --now hostapd 2>/dev/null || true
+
+# Pin the FULL `dnsmasq` package to "do not install" so a future
+# `apt full-upgrade` (or somebody manually `apt install`-ing pi-hole etc.)
+# can't drag it back in and steal :53/:67 from NM's per-AP dnsmasq.
+# `apt-mark hold` is the standard Debian way and is reversible with
+# `apt-mark unhold dnsmasq`.  Errors are tolerated — on some images the
+# package isn't even known to apt yet (clean install).
+apt-mark hold dnsmasq 2>/dev/null || true
+
 
 
 # -- 2. Persistent journald ----------------------------------------------
@@ -250,6 +264,35 @@ install -m 0644 "$SCRIPT_DIR/service/wifi-powersave-off.conf" \
     /etc/NetworkManager/conf.d/wifi-powersave-off.conf
 install -m 0644 "$SCRIPT_DIR/service/ais-wifi-powersave-off.service" \
     /etc/systemd/system/${PS_SERVICE_NAME}.service
+
+# Pin the per-AP dnsmasq's upstream resolvers.
+#
+# Why: NM's `ipv4.method shared` spawns a private dnsmasq for the AP
+# subnet (192.168.4.0/24).  That dnsmasq forwards client DNS queries
+# upstream by reading /etc/resolv.conf.  When Tailscale is also
+# installed, /etc/resolv.conf flaps between NM's wlan0 server and
+# Tailscale's MagicDNS (100.100.100.100) every 30-90 s — and
+# dnsmasq re-reads it on every change.  An iPhone joining the AP runs
+# its captive-portal probe (`GET captive.apple.com/hotspot-detect.html`)
+# during one of those flap windows, the DNS lookup times out, and iOS
+# either refuses to join with "Unable to join this network" OR joins
+# but won't pass any traffic — so http://192.168.4.1/ never loads.
+#
+# Fix: ship a `dnsmasq-shared.d` drop-in that says `no-resolv` plus
+# explicit `server=1.1.1.1` etc.  This decouples the AP-side resolver
+# from /etc/resolv.conf entirely.  Tailscale's MagicDNS keeps working
+# for the host (Pi itself) — only the AP-spawned dnsmasq is affected.
+#
+# The same file also adds `address=/captive.apple.com/192.168.4.1`
+# entries that hijack OS captive-portal probes to our own Flask app
+# (which serves the magic "Success" / 204 / NCSI strings each OS
+# expects).  Belt-and-braces — once upstream is pinned this is rarely
+# hit, but it makes the join experience instant.
+echo -e "${GREEN}      Pinning AP-side dnsmasq upstream (resolv.conf-independent)…${NC}"
+mkdir -p /etc/NetworkManager/dnsmasq-shared.d
+install -m 0644 "$SCRIPT_DIR/service/dnsmasq-shared-ais.conf" \
+    /etc/NetworkManager/dnsmasq-shared.d/00-ais-upstream.conf
+
 
 
 # Lock NetworkManager's DNS plugin to the simple built-in writer BEFORE
@@ -404,7 +447,30 @@ else
         wifi-sec.key-mgmt wpa-psk \
         wifi-sec.psk "$HOTSPOT_PW" \
         connection.autoconnect yes \
+        connection.autoconnect-retries 0 \
+        connection.autoconnect-priority 100 \
+        ipv4.dhcp-leasetime 3600 \
         >/dev/null
+    # Notes on the hardening flags:
+    #   * autoconnect-retries 0  → never give up.  Default is 4, after
+    #     which NM gives up on autoconnect for the boot session and
+    #     leaves wlan1 idle.  We want the AP to come back forever.
+    #   * autoconnect-priority 100 → win every autoconnect race.  If a
+    #     future user accidentally creates a second profile bound to
+    #     wlan1 (e.g. a STA test profile), this one still wins.
+    #   * ipv4.dhcp-leasetime 3600 → 1-hour leases instead of NM's
+    #     default 1-hour-but-clients-renew-every-30-min.  Stops phones
+    #     from re-running their captive-portal probe every renewal,
+    #     which is what surfaces the "Unable to join" error if our
+    #     AP-side dnsmasq has a bad moment.
+
+    # If the connection was already up (e.g. on a re-install), the new
+    # dnsmasq-shared.d snippet won't take effect until the per-AP
+    # dnsmasq is re-spawned.  Bouncing the connection is the cleanest
+    # way: down + up = NM kills its dnsmasq child and respawns it,
+    # picking up our /etc/NetworkManager/dnsmasq-shared.d/00-ais-upstream.conf
+    nmcli c down ais-hotspot >/dev/null 2>&1 || true
+
 
     # 7c. Bring it up and verify.  We poll the active-state for up to 15 s
     #     because nmcli can return before NM finishes IP-config.  On

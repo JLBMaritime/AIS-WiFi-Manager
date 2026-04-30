@@ -74,7 +74,6 @@ sudo apt-get update
 sudo apt-get install -y git
 git clone https://github.com/JLBMaritime/AIS-WiFi-Manager.git
 cd AIS-WiFi-Manager
-sudo chmod +x install.sh
 
 # 2. Run the installer (add --with-tailscale if you want it; see below)
 sudo ./install.sh
@@ -395,7 +394,69 @@ sudo nmcli c up ais-hotspot
 `sudo ais-wifi-cli hotspot diagnose` lists who is bound to those
 ports.
 
+### iPhone says *"Unable to join this network"* (or web UI on AP is blank)
+
+**Symptom**: iPhone (and other phones) report *"Unable to join this
+network"* when connecting to `JLBMaritime-AIS`.  Sometimes the join
+appears to succeed but Safari, Chrome and the captive-portal sheet
+all spin forever — `http://192.168.4.1/` never loads even though
+ping/SSH from a laptop on the same AP works fine.
+
+**Cause**: NetworkManager's per-AP `dnsmasq` (the one spawned for
+`ipv4.method shared` on `wlan1`) reads `/etc/resolv.conf` for its
+upstream DNS.  When Tailscale is also installed, **both** Tailscale
+*and* NetworkManager rewrite `/etc/resolv.conf` every 30–90 s as
+their respective DNS state changes — typical journal:
+
+```
+17:00 dnsmasq: using nameserver 192.168.0.1#53          ← NM/wlan0
+17:02 dnsmasq: using nameserver 100.100.100.100#53      ← Tailscale
+17:03 dnsmasq: no servers found in /etc/resolv.conf     ← wlan0 blip
+17:03 dnsmasq: using nameserver 192.168.0.1#53          ← NM/wlan0
+```
+
+`dnsmasq` re-reads it on every change.  iOS does its captive-portal
+probe (`captive.apple.com/hotspot-detect.html`) the moment it
+associates; if the probe lands during one of those flap windows the
+DNS lookup times out and iOS shows *"Unable to join this network"*
+(or, on newer iOS, joins but quarantines the network so no traffic
+flows — same root cause, different surface symptom).
+
+**Fix**: install.sh ships a `dnsmasq-shared.d` drop-in that pins the
+AP's resolver upstream to Cloudflare + Google **and** redirects every
+common captive-portal probe domain (`captive.apple.com`,
+`connectivitycheck.gstatic.com`, `www.msftconnecttest.com`, etc.)
+straight back to `192.168.4.1` where Flask answers with the magic
+constant each OS expects:
+
+```
+/etc/NetworkManager/dnsmasq-shared.d/00-ais-upstream.conf
+    no-resolv
+    server=1.1.1.1
+    server=1.0.0.1
+    server=8.8.8.8
+    address=/captive.apple.com/192.168.4.1
+    …
+```
+
+This decouples AP-side DNS from `/etc/resolv.conf` entirely;
+Tailscale's MagicDNS keeps working for the host (Pi itself).
+
+If you're upgrading from an older install, just re-run the installer:
+
+```bash
+cd ~/AIS-WiFi-Manager
+git pull
+sudo ./install.sh
+sudo ais-wifi-cli doctor       # confirms the pin + live DNS probe
+```
+
+The `doctor` subcommand validates the drop-in *and* sends a real
+`dig @192.168.4.1 captive.apple.com` so a future regression of this
+class of bug is caught before the next phone tries to join.
+
 ### SSH disconnects mid-install
+
 
 This is expected — step 1 installs `network-manager`, which on some
 images briefly bounces wlan0. The installer detects you're on SSH and

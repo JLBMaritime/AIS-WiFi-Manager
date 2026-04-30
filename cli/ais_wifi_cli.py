@@ -1041,6 +1041,105 @@ def cmd_doctor(_argv):
     except Exception as e:
         warn(f"/healthz unreachable: {e}")
 
+    # Captive-portal probe responder check.  iOS / Android / Windows
+    # check these URLs the moment a device joins the AP; if Flask isn't
+    # answering them with the magic strings each OS expects, you get the
+    # dreaded "Unable to join this network".  We test the Apple one
+    # because it's the strictest (byte-equality on the body).
+    try:
+        with urllib.request.urlopen(
+                'http://127.0.0.1/hotspot-detect.html', timeout=3) as r3:
+            body = r3.read()
+            if b'<TITLE>Success</TITLE>' in body:
+                ok("/hotspot-detect.html returns Apple's magic body")
+            else:
+                fail("/hotspot-detect.html body is wrong "
+                     "(iOS will refuse to join cleanly)")
+                rc = 1
+    except Exception as e:
+        warn(f"/hotspot-detect.html unreachable: {e}")
+
+    print(color_text("\nAP-side dnsmasq upstream pin", Colors.BOLD))
+    # The dnsmasq-shared.d snippet is what stops Tailscale's MagicDNS
+    # rewrites of /etc/resolv.conf from making the AP's DNS flap.
+    # Without it, an iPhone joining the AP randomly sees its
+    # captive-portal probe time out and shows "Unable to join this
+    # network".  This block is the regression guard for that bug —
+    # don't remove.
+    pin_path = '/etc/NetworkManager/dnsmasq-shared.d/00-ais-upstream.conf'
+    if not os.path.exists(pin_path):
+        fail(f"{pin_path} is missing — AP DNS will flap with Tailscale "
+             "and iOS will refuse to join.  Re-run install.sh.")
+        rc = 1
+    else:
+        try:
+            with open(pin_path, 'r', encoding='utf-8') as fh:
+                content = fh.read()
+            need_resolv = 'no-resolv' in content
+            need_server = 'server=' in content
+            if need_resolv and need_server:
+                ok(f"{pin_path}: no-resolv + explicit upstream(s) present")
+            else:
+                miss = []
+                if not need_resolv:
+                    miss.append("'no-resolv'")
+                if not need_server:
+                    miss.append("at least one 'server=' line")
+                fail(f"{pin_path} is missing: {', '.join(miss)}.  "
+                     "Re-run install.sh to restore.")
+                rc = 1
+        except OSError as e:
+            warn(f"{pin_path}: cannot read ({e})")
+
+    # Live AP-side DNS probe — actually ask the per-AP dnsmasq whether
+    # captive.apple.com resolves *right now*.  This catches the case
+    # where the file is correct but the AP-spawned dnsmasq is using a
+    # stale config (re-installer didn't bounce the connection, etc.).
+    print(color_text("\nLive AP-side DNS probe", Colors.BOLD))
+    try:
+        # `getent hosts` would query the host's resolver, which isn't
+        # what we want.  We need to query 192.168.4.1 specifically.
+        # Use the `dig` binary if present (most Pi OS images have it
+        # via bind9-host); fall back to `nslookup`.
+        probe_cmd = None
+        for cand in (
+                ['dig', '+time=2', '+tries=1', '+short',
+                 '@192.168.4.1', 'captive.apple.com'],
+                ['nslookup', '-timeout=2', 'captive.apple.com',
+                 '192.168.4.1'],
+        ):
+            try:
+                subprocess.run(['which', cand[0]],
+                               capture_output=True, check=True)
+                probe_cmd = cand
+                break
+            except Exception:
+                continue
+        if probe_cmd is None:
+            warn("neither dig nor nslookup available; "
+                 "skipping live DNS probe (apt install dnsutils to enable)")
+        else:
+            r = subprocess.run(probe_cmd, capture_output=True,
+                               text=True, timeout=5)
+            if r.returncode == 0 and r.stdout.strip():
+                # Should resolve to 192.168.4.1 (because of our
+                # captive-portal hijack address= line).
+                if '192.168.4.1' in r.stdout:
+                    ok("captive.apple.com → 192.168.4.1 "
+                       "(captive-portal hijack working)")
+                else:
+                    warn("captive.apple.com resolves but NOT to "
+                         "192.168.4.1 — captive-portal hijack disabled?")
+            else:
+                fail("AP-side DNS query for captive.apple.com failed "
+                     "(timeout or empty answer).  Bounce the AP: "
+                     "sudo nmcli c down ais-hotspot && "
+                     "sudo nmcli c up ais-hotspot")
+                rc = 1
+    except Exception as e:
+        warn(f"DNS probe error: {e}")
+
+
     print()
     if rc == 0:
         print(color_text("All checks passed.", Colors.GREEN))

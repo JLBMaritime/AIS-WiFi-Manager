@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import logging
 
-from flask import jsonify, redirect, render_template, request, url_for
+from flask import Response, jsonify, redirect, render_template, request, url_for
+
 from flask_login import current_user, login_required
 
 from app import app
@@ -70,8 +71,75 @@ def healthz():
 
 
 # ---------------------------------------------------------------------------
+# Captive-portal probe responders
+# ---------------------------------------------------------------------------
+# When a phone joins the management AP (192.168.4.1) it runs a "captive
+# portal probe" to decide whether the network is usable.  Each OS has its
+# own probe URL with a hard-coded expected response body — get it wrong
+# and you'll see one of these symptoms:
+#
+#   iOS / iPadOS / macOS:  "Unable to join this network", or a forced
+#                          captive-portal sheet pops up showing our login
+#                          page (which iOS interprets as "needs auth" and
+#                          will not let other apps use the Wi-Fi).
+#   Android:               "Sign in to network" notification that never
+#                          clears; data traffic blocked.
+#   Windows 10/11:         "No internet, secured" — Edge auto-opens the
+#                          captive portal and may not return.
+#
+# Our /etc/NetworkManager/dnsmasq-shared.d/00-ais-upstream.conf uses
+# `address=/captive.apple.com/192.168.4.1` etc. to redirect those probe
+# hostnames at us; the routes below give each OS exactly the magic bytes
+# it expects so it concludes "Wi-Fi is fine, no portal" and the user can
+# browse to http://192.168.4.1/ normally.
+#
+# These endpoints are unauthenticated by design — the OS probe runs
+# before the user has had any chance to log in.  None of them leak any
+# information; they're literally hard-coded constant strings.
+#
+# Cross-references:
+#   * Apple:    https://support.apple.com/en-us/HT204497
+#   * Google:   https://www.chromium.org/chromium-os/chromiumos-design-docs/network-portal-detection/
+#   * Microsoft NCSI: https://learn.microsoft.com/en-us/windows-server/networking/technologies/ncsi/
+
+# Apple's success body must be EXACTLY this string; iOS does a
+# byte-equality check, not a substring/regex match.
+_APPLE_SUCCESS_HTML = (
+    b"<HTML><HEAD><TITLE>Success</TITLE></HEAD>"
+    b"<BODY>Success</BODY></HTML>\n"
+)
+
+
+@app.route('/hotspot-detect.html')
+@app.route('/library/test/success.html')
+def captive_apple():
+    """iOS / macOS captive-portal probe → return Apple's magic body."""
+    return Response(_APPLE_SUCCESS_HTML, mimetype='text/html')
+
+
+@app.route('/generate_204')
+@app.route('/gen_204')
+def captive_google():
+    """Android / ChromeOS captive-portal probe → 204 No Content."""
+    return Response(status=204)
+
+
+@app.route('/ncsi.txt')
+def captive_msftncsi():
+    """Windows NCSI captive-portal probe → 'Microsoft NCSI'."""
+    return Response(b'Microsoft NCSI', mimetype='text/plain')
+
+
+@app.route('/connecttest.txt')
+def captive_msft_connecttest():
+    """Windows 10/11 (newer) captive-portal probe."""
+    return Response(b'Microsoft Connect Test', mimetype='text/plain')
+
+
+# ---------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------
+
 @app.route('/')
 @login_required
 def index():
