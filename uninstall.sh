@@ -41,13 +41,20 @@ if [[ "$REPLY" =~ ^[Yy]$ ]]; then
 fi
 
 echo -e "${GREEN}[4/4] Hotspot cleanup (optional)…${NC}"
-read -p "Remove hotspot configuration? (y/n) " -n 1 -r
+read -p "Remove hotspot configuration (NM connection 'ais-hotspot')? (y/n) " -n 1 -r
 echo
 if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+    # Tear down and delete the NM AP profile we created in install.sh step 7.
+    nmcli connection down   ais-hotspot 2>/dev/null || true
+    nmcli connection delete ais-hotspot 2>/dev/null || true
+    # Older installs may have left these legacy units around — clean them
+    # too, since we no longer use hostapd or the system dnsmasq.service.
     systemctl stop    hostapd dnsmasq 2>/dev/null || true
     systemctl disable hostapd dnsmasq 2>/dev/null || true
     rm -f /etc/hostapd/hostapd.conf /etc/dnsmasq.conf
+    # Legacy connection name from a previous AP design.
     nmcli connection delete Hotspot 2>/dev/null || true
 fi
+
 
 echo -e "${GREEN}Done.${NC}"

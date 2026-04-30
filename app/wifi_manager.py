@@ -21,7 +21,20 @@ from app.database import add_saved_network, forget_network as db_forget_network
 
 log = logging.getLogger(__name__)
 
+# Station-mode (client) interface — the one that connects to the user's home /
+# boat / shoreside Wi-Fi to give the unit internet access.
 WIFI_IFACE = "wlan0"
+
+# Access-point (always-on management hotspot) — the USB Wi-Fi dongle.
+# This lets admins reach the box at http://192.168.4.1/ even when wlan0 is
+# misconfigured or out of range.  All AP-side state (SSID, PSK) lives in the
+# NetworkManager connection profile named below; that is the single source of
+# truth — the static HOTSPOT_PASSWORD.txt file is only the install-time *seed*.
+AP_IFACE     = "wlan1"
+AP_CON_NAME  = "ais-hotspot"
+AP_DEFAULT_SSID = "JLBMaritime-AIS"
+AP_DEFAULT_IP   = "192.168.4.1"
+
 
 
 # ---------------------------------------------------------------------------
@@ -198,3 +211,138 @@ def rescan_networks() -> List[dict]:
             break
         time.sleep(0.2)
     return scan_networks()
+
+
+# ---------------------------------------------------------------------------
+# Always-on management hotspot on wlan1 (USB dongle)
+# ---------------------------------------------------------------------------
+# Why a separate radio?
+#   The Pi 4B's onboard wlan0 can technically do AP+STA simultaneously on the
+#   same channel only, with caveats around brcmfmac stability.  In production
+#   we want the AP to never go down even if the user mis-types the home Wi-Fi
+#   password and wlan0 is stuck in 'connecting' for 30 s — so a USB dongle on
+#   wlan1 carries the AP and wlan0 carries the station.  Both stay active
+#   simultaneously, which the Pi handles cleanly.
+#
+# Why query NM instead of trusting HOTSPOT_PASSWORD.txt?
+#   The file is only the *seed* the installer hands NM at first boot.  After
+#   that NM is the source of truth — the user can rotate the PSK via
+#   `ais-wifi-cli hotspot rotate-pw`, and we don't want the file and NM to
+#   drift apart and lie to anyone.
+
+def _nmcli_get(field: str, con_name: str = AP_CON_NAME,
+               with_secrets: bool = False) -> Optional[str]:
+    """Read a single connection field from NM, e.g. ``802-11-wireless.ssid``.
+
+    With ``with_secrets=True`` the call uses ``-s`` so PSKs are returned;
+    that requires root (the caller is responsible for running with sudo).
+    """
+    cmd = ["nmcli"]
+    if with_secrets:
+        cmd.append("-s")
+    cmd += ["-t", "-g", field, "connection", "show", con_name]
+    out, _err, rc = run_args(cmd)
+    if rc != 0:
+        return None
+    return out.strip() or None
+
+
+def _ap_clients() -> int:
+    """Count associated stations on the AP via ``iw dev <iface> station dump``."""
+    out, _err, rc = run_args(["iw", "dev", AP_IFACE, "station", "dump"])
+    if rc != 0 or not out:
+        return 0
+    return sum(1 for line in out.splitlines() if line.startswith("Station "))
+
+
+def _ap_ipv4() -> Optional[str]:
+    """Return AP IPv4 address (e.g. ``192.168.4.1/24``) or None if not up."""
+    out, _err, rc = run_args(["ip", "-4", "-br", "addr", "show", AP_IFACE])
+    if rc != 0 or not out.strip():
+        return None
+    # Format: "wlan1            UP             192.168.4.1/24 ..."
+    parts = out.split()
+    for p in parts[2:]:
+        if "/" in p:
+            return p
+    return None
+
+
+def _ap_active() -> bool:
+    out, _err, rc = run_args([
+        "nmcli", "-t", "-f", "NAME,STATE", "connection", "show", "--active",
+    ])
+    if rc != 0:
+        return False
+    for line in out.splitlines():
+        parts = _split_nmcli_terse(line)
+        if len(parts) >= 2 and parts[0] == AP_CON_NAME and parts[1] == "activated":
+            return True
+    return False
+
+
+def hotspot_status() -> dict:
+    """Read-only AP status snapshot for dashboard / CLI / /healthz.
+
+    Never raises — designed to be safe to call even before the AP is set up.
+    """
+    ssid_live = None
+    out, _err, rc = run_args(["iw", "dev", AP_IFACE, "info"])
+    if rc == 0 and out:
+        for line in out.splitlines():
+            line = line.strip()
+            if line.startswith("ssid "):
+                ssid_live = line.split(None, 1)[1] if " " in line else None
+
+    ssid_profile = _nmcli_get("802-11-wireless.ssid") or AP_DEFAULT_SSID
+    ip = _ap_ipv4()
+    return {
+        "iface":   AP_IFACE,
+        "con":     AP_CON_NAME,
+        "ssid":    ssid_live or ssid_profile,
+        "ip":      ip or "",
+        "active":  _ap_active(),
+        "clients": _ap_clients(),
+    }
+
+
+def hotspot_psk() -> Optional[str]:
+    """Return the AP PSK from NM (root only — the caller must be uid 0)."""
+    return _nmcli_get("802-11-wireless-security.psk", with_secrets=True)
+
+
+def hotspot_up() -> tuple[bool, str]:
+    out, err, rc = run_args(
+        ["nmcli", "connection", "up", AP_CON_NAME], timeout=20)
+    if rc == 0:
+        return True, "Hotspot activated"
+    return False, (err or out or "Failed to bring hotspot up")
+
+
+def hotspot_down() -> tuple[bool, str]:
+    out, err, rc = run_args(
+        ["nmcli", "connection", "down", AP_CON_NAME], timeout=20)
+    if rc == 0:
+        return True, "Hotspot deactivated"
+    return False, (err or out or "Failed to bring hotspot down")
+
+
+def hotspot_set_psk(new_psk: str) -> tuple[bool, str]:
+    """Replace the AP PSK in NM and bounce the connection."""
+    if len(new_psk) < 8:
+        return False, "PSK must be at least 8 characters (WPA2 minimum)"
+    _o, e1, rc = run_args([
+        "nmcli", "connection", "modify", AP_CON_NAME,
+        "wifi-sec.psk", new_psk,
+    ], timeout=10)
+    if rc != 0:
+        return False, e1 or "nmcli modify failed"
+    # Bounce so the new PSK is actually used by the running hostapd.
+    run_args(["nmcli", "connection", "down", AP_CON_NAME], timeout=20)
+    out, err, rc = run_args(
+        ["nmcli", "connection", "up", AP_CON_NAME], timeout=20)
+    if rc != 0:
+        return False, err or out or "PSK saved but reactivation failed"
+    return True, "PSK updated and hotspot bounced"
+
+

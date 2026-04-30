@@ -27,8 +27,9 @@ brief.  The headline items:
 | 9 | **DB** | SQLite WAL + bcrypt `users` table + atomic config writes + capped backups. | Power-loss-during-write no longer truncates `ais_config.conf` to zero bytes. |
 | 10 | **Logs** | Bounded `deque(maxlen=200)`, single `logging.basicConfig`, `journald` `Storage=persistent`. | No more list-slice memory churn; logs survive reboots. |
 | 11 | **Recovery** | `sudo ais-wifi-cli reset-password` resets to default and forces re-change. | If you forget your password, you no longer have to reflash the SD card. |
-| 12 | **Hotspot password** | Randomised at install time, stored mode 600 at `/opt/ais-wifi-manager/HOTSPOT_PASSWORD.txt`, retrievable via `sudo ais-wifi-cli show-hotspot`. | Old install hard-coded `JLBMaritime` for the AP — visible in the repo. |
+| 12 | **Hotspot model** | Always-on AP `JLBMaritime-AIS` on **wlan1** (USB dongle), 192.168.4.1, no fallback gymnastics. PSK randomised at install and visible only via `sudo ais-wifi-cli show-hotspot` (queries NetworkManager directly — the source of truth). | wlan0 stays free for the station connection (your home/boat/shoreside Wi-Fi). The AP can never be knocked offline by a wlan0 mis-config. |
 | 13 | **Health** | `GET /healthz` (unauthenticated) returns 200 only when forwarder + serial are alive. | Useful for external monitors / Tailscale Serve probes. |
+
 
 ---
 
@@ -82,26 +83,90 @@ sudo ./install.sh
 
 The installer will:
 
-1. `apt install` Python, NetworkManager, hostapd, dnsmasq, iw, wireless-tools,
-   git, libcap2-bin (for `setcap`).
+1. `apt install` Python, NetworkManager, **dnsmasq-base** (binary only — see
+   note below), iw, wireless-tools, git, libcap2-bin (for `setcap`).  It
+   also `systemctl disable --now`s `dnsmasq` and `hostapd` if a previous
+   install pulled them in.
 2. Turn on persistent journald (`/var/log/journal`).
 3. Copy the project to `/opt/ais-wifi-manager`.
 4. Create a venv at `/opt/ais-wifi-manager/.venv` and install Python deps.
 5. `setcap cap_net_bind_service=+ep` on the venv `python3` so the service
    can bind port 80 without being root.
-6. Install the `ais-wifi-cli` shim in `/usr/local/bin`.
-7. Drop a NetworkManager config that **permanently disables Wi-Fi
-   power-save** (the brcmfmac freeze mitigation).
-8. Generate a random hotspot password (saved mode 600 in
-   `/opt/ais-wifi-manager/HOTSPOT_PASSWORD.txt`).
-9. Install + enable both systemd units.
+6. Install the `ais-wifi-cli` shim in `/usr/local/bin`, drop a
+   NetworkManager config that **permanently disables Wi-Fi power-save**
+   (the brcmfmac freeze mitigation).
+7. **Materialise the always-on AP** on `wlan1` (USB Wi-Fi dongle):
+   create / re-create the NetworkManager connection profile
+   `ais-hotspot` (SSID `JLBMaritime-AIS`, 192.168.4.1/24, WPA2-PSK with
+   a randomly generated 16-char alnum PSK), bring it up, and *verify*
+   activation by polling `nmcli` for up to 15 s.  On failure, the NM
+   journal tail is printed and the installer exits non-zero.
+8. The PSK is written mode 600 to
+   `/opt/ais-wifi-manager/HOTSPOT_PASSWORD.txt` (seed file — see Hotspot
+   section below for the source-of-truth model).
+9. Install + enable both systemd units, run a post-flight `is-active`
+   check, and dump the journal tail if the unit failed to start.
 
 When it finishes:
 
 ```
-Web UI:   http://AIS.local/   (or http://192.168.4.1 in hotspot mode)
+Web UI (over hotspot):     http://192.168.4.1/
+Web UI (over your LAN):    http://<pi-ip>/   or   http://AIS.local/
 Login:    JLBMaritime / Admin    ← will be forced to change on first sign-in
 ```
+
+> **Why a USB dongle?**  The Pi 4B's onboard Wi-Fi (`wlan0`) carries the
+> client connection to your home / boat / shoreside network so the unit
+> has internet.  A USB dongle (`wlan1`) carries the always-on AP.  Both
+> stay active simultaneously, which means the management AP can never be
+> knocked offline by a wlan0 mis-config or out-of-range condition — you
+> can always reach `http://192.168.4.1/` to fix things.
+>
+> Any modern dongle whose chipset reports `* AP` in `iw list` will work
+> (RTL8188EUS / 8192EU / 8812AU, MT76xx, RT5370, etc.). The installer
+> will warn if no AP-capable interface mode is reported.
+
+---
+
+## Hotspot
+
+| Item       | Value                                                       |
+|------------|-------------------------------------------------------------|
+| SSID       | `JLBMaritime-AIS`                                           |
+| Interface  | `wlan1` (USB Wi-Fi adapter)                                 |
+| IPv4       | `192.168.4.1/24` (NM `ipv4.method shared`)                  |
+| Security   | WPA2-PSK, randomised at install                             |
+| Profile    | NM connection name `ais-hotspot`, autoconnect, MAC-pinned   |
+| Source of truth | NetworkManager — **not** `HOTSPOT_PASSWORD.txt`        |
+
+```bash
+sudo ais-wifi-cli show-hotspot       # SSID + PSK + state + clients
+sudo ais-wifi-cli hotspot status     # same, plus formatting
+sudo ais-wifi-cli hotspot up         # bring up
+sudo ais-wifi-cli hotspot down       # bring down
+sudo ais-wifi-cli hotspot rotate-pw  # generate new PSK & bounce AP
+sudo ais-wifi-cli hotspot diagnose   # full A–E probe report
+```
+
+### dnsmasq-base, not dnsmasq (if you're packaging this yourself)
+
+NM's `ipv4.method shared` spawns its own private dnsmasq for the AP
+subnet on 192.168.4.1.  The full `dnsmasq` Debian package ships a
+systemd unit that auto-starts and binds port 53/67 on `0.0.0.0` —
+that steals the port and makes the AP fail to come up with the famously
+vague:
+
+```
+device (wlan1): state change: ip-config -> failed
+                              (reason 'ip-config-unavailable')
+dnsmasq: failed to create listening socket for 192.168.4.1: Address already in use
+```
+
+The fix is to install `dnsmasq-base` (binary only, no unit) — which is
+what `install.sh` does.  If you upgraded from an older install where
+the full `dnsmasq` package is already present, the installer also runs
+`systemctl disable --now dnsmasq` belt-and-braces.
+
 
 ---
 
