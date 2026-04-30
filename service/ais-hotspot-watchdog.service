@@ -1,0 +1,70 @@
+[Unit]
+# AIS-WiFi-Manager — hotspot watchdog
+# -----------------------------------
+# Self-healing supervisor for the always-on `ais-hotspot` AP profile.
+#
+# Why a separate unit?
+#   * Isolation: a wedged supervisor must not be able to kill the web
+#     service or vice-versa.  Independent units, independent restart
+#     domains, independent journal streams (`-u ais-hotspot-watchdog`).
+#   * Lifecycle: the watchdog must keep running even if the web app is
+#     stopped for maintenance (`systemctl stop ais-wifi-manager`); a
+#     local admin should still be able to reach the AP at 192.168.4.1
+#     to recover.
+#
+# What it does (see app/_hotspot_watchdog.py for the loop):
+#   1. Polls `nmcli -t -f NAME,STATE c show --active` every 5 s.
+#   2. If `ais-hotspot:activated` is missing for >= POLL_FAIL_SECS (15 s
+#      by default), runs `nmcli c up ais-hotspot` with exponential
+#      backoff (5, 10, 20, 40, 80 s; capped at 5 min).
+#   3. Logs every transition to journald with structured prefixes so
+#      `journalctl -u ais-hotspot-watchdog --grep RECOVERED` works.
+#
+# Why this matters even after the USB-2 port move:
+#   The mt76x2u + xhci-Pi-4B-USB-3 bug is the loud failure mode; the
+#   *quiet* failure mode is one-off disconnects from cable jiggle,
+#   brown-out, firmware burp, or a NetworkManager profile reload that
+#   briefly leaves wlan1 idle.  Without this watchdog, those leave the
+#   AP down until reboot.
+#
+Description=AIS-WiFi Manager — hotspot watchdog
+Documentation=https://github.com/JLBMaritime/AIS-WiFi-Manager
+After=NetworkManager.service ais-wifi-manager.service
+Wants=NetworkManager.service
+# We deliberately don't `Requires=` the web service: the watchdog should
+# keep the AP up even if the web service is stopped for maintenance.
+
+[Service]
+Type=simple
+ExecStart=/opt/ais-wifi-manager/.venv/bin/python -u /opt/ais-wifi-manager/app/_hotspot_watchdog.py
+Restart=always
+RestartSec=5
+# If the watchdog itself crashes faster than this we really do want
+# systemd to give up — something is broken at a level we can't fix.
+StartLimitIntervalSec=120
+StartLimitBurst=10
+
+# Hardening — the watchdog only needs nmcli + journald.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+# nmcli wants D-Bus; we need to talk to org.freedesktop.NetworkManager.
+# AF_UNIX = D-Bus, AF_NETLINK = nmcli's link-state queries, AF_INET for
+# the local /healthz probe.  No raw sockets.
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+# Journald only — we never write to /var/log directly.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ais-hotspot-watchdog
+
+[Install]
+WantedBy=multi-user.target

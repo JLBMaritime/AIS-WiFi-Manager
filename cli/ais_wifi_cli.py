@@ -1140,12 +1140,113 @@ def cmd_doctor(_argv):
         warn(f"DNS probe error: {e}")
 
 
+    # ------------------------------------------------------------------
+    # Wi-Fi dongle USB stability
+    # ------------------------------------------------------------------
+    # Catches the mt76x2u + Pi 4B xhci_hcd SuperSpeed bug post-install
+    # (the install-time check is in install.sh §7b but only runs once).
+    # We scan the kernel ring-buffer for `USB disconnect` events on the
+    # bus path the wlan1 device currently lives on, in the last 5 min.
+    # ≥2 disconnects = ✗ with a "move to USB-2" hint and the actual
+    # `lsusb -t` topology so the user can see at a glance which port
+    # the dongle is on.
+    print(color_text("\nWi-Fi dongle USB stability", Colors.BOLD))
+    try:
+        wlan1_dev = "/sys/class/net/wlan1/device"
+        if not os.path.exists(wlan1_dev):
+            warn("wlan1 not present — skipping USB stability check")
+        else:
+            # Discover the bus number the dongle is on.  Bus 1 = USB-2
+            # (high-speed), Bus 2 = USB-3 (SuperSpeed) on the Pi 4B.
+            try:
+                parent = os.path.realpath(wlan1_dev)
+                # /sys/bus/usb/devices/2-1/<...iface...>  → strip
+                # the iface segment to get the parent USB-device dir.
+                usb_parent = os.path.dirname(parent)
+                with open(os.path.join(usb_parent, "busnum")) as f:
+                    busnum = f.read().strip()
+            except OSError:
+                busnum = "?"
+
+            # Read driver name from the device's uevent.
+            driver = "?"
+            try:
+                with open(os.path.join(wlan1_dev, "uevent")) as f:
+                    for line in f:
+                        if line.startswith("DRIVER="):
+                            driver = line.partition("=")[2].strip()
+                            break
+            except OSError:
+                pass
+
+            # Count `USB disconnect, device number N` events from the
+            # kernel buffer (-k) over the last 5 minutes.  We count
+            # ALL disconnects (not just on the wlan1 bus path) — a
+            # user is unlikely to be hot-plugging unrelated USB-3
+            # devices during normal operation, and over-reporting is
+            # safer than under-reporting for a stability check.
+            try:
+                jr = subprocess.run(
+                    ["journalctl", "--since", "5 minutes ago", "-k",
+                     "--no-pager", "-q", "-o", "cat"],
+                    capture_output=True, text=True, timeout=10, check=False,
+                )
+                disc = sum(
+                    1 for line in jr.stdout.splitlines()
+                    if "USB disconnect, device number" in line
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                disc = -1
+
+            # Friendly bus-name string.
+            bus_label = {"1": "USB-2 high-speed", "2": "USB-3 SuperSpeed"}\
+                .get(busnum, f"bus {busnum}")
+
+            risky = driver in ("mt76x2u", "mt76x0u", "rt2800usb") \
+                    and busnum == "2"
+
+            if disc < 0:
+                warn(f"wlan1 driver={driver} on {bus_label}; "
+                     "journalctl -k unavailable (skipping disconnect scan)")
+            elif disc >= 2 or (risky and disc >= 1):
+                fail(f"{disc} USB disconnect(s) in last 5 min on this host. "
+                     f"wlan1 driver={driver} bus={bus_label}.")
+                if risky:
+                    print("       The mt76x2u/rt2800usb driver on the Pi 4B's "
+                          "SuperSpeed bus is documented to flap.")
+                    print("       FIX: move the dongle to a BLACK USB-2 "
+                          "port and re-run sudo ./install.sh")
+                # Show topology so the user can see what's where.
+                try:
+                    lt = subprocess.run(
+                        ["lsusb", "-t"],
+                        capture_output=True, text=True, timeout=5, check=False,
+                    )
+                    if lt.stdout.strip():
+                        print("       lsusb -t:")
+                        for line in lt.stdout.splitlines():
+                            print(f"         {line}")
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    pass
+                rc = 1
+            elif disc == 1:
+                warn(f"1 USB disconnect in last 5 min on this host. "
+                     f"wlan1 driver={driver} bus={bus_label}. "
+                     "Watch for repeats.")
+            else:
+                ok(f"wlan1 on {bus_label}; driver={driver}; "
+                   "0 disconnects in last 5 min")
+    except Exception as e:
+        warn(f"USB-stability check error: {e}")
+
+
     print()
     if rc == 0:
         print(color_text("All checks passed.", Colors.GREEN))
     else:
         print(color_text("One or more checks FAILED.  See above.", Colors.RED))
     return rc
+
 
 
 def cmd_health(_argv):

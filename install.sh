@@ -421,6 +421,55 @@ else
     WLAN1_MAC="$(cat /sys/class/net/wlan1/address)"
     echo -e "${GREEN}      wlan1 detected (MAC $WLAN1_MAC) — creating AP profile.${NC}"
 
+    # ---------------------------------------------------------------
+    # USB-3 SuperSpeed-bus + driver-affinity warning.
+    # ---------------------------------------------------------------
+    # Background: MediaTek MT7612U (`0e8d:7612`) + the in-tree
+    # `mt76x2u` driver + the Pi 4B's `xhci_hcd` SuperSpeed implementation
+    # is a documented bad triplet.  Symptoms:
+    #
+    #     dmesg:
+    #       mt76x2u 2-1:1.0: timed out waiting for pending tx
+    #       xhci_hcd … WARN Set TR Deq Ptr cmd failed due to incorrect
+    #                  slot or ep state.
+    #       usb 2-1: USB disconnect, device number N
+    #       usb 2-1: new SuperSpeed USB device number N+1
+    #     …looping every 10–30 s, AP flapping `activated → unmanaged →
+    #     activated` until everyone gives up.
+    #
+    # The fix is physical: plug the dongle into a USB-2 (BLACK) port
+    # instead of a USB-3 (BLUE) one.  The same chipset is rock-solid
+    # at high-speed.  We don't try to enforce a port from software —
+    # there's no portable way — but we DO loudly tell the user what's
+    # about to happen so they don't spend an evening hunting it.
+    # Other drivers known to misbehave on Pi-4B SuperSpeed: mt76x0u,
+    # rt2800usb (some firmware revs).
+    USB_PARENT="$(readlink -f "/sys/class/net/wlan1/device" 2>/dev/null \
+                  | sed 's,/[^/]*$,,')"
+    USB_BUSNUM="$(cat "$USB_PARENT/busnum" 2>/dev/null || echo '?')"
+    USB_DRIVER="$(awk -F= '/^DRIVER=/{print $2}' \
+                  /sys/class/net/wlan1/device/uevent 2>/dev/null || echo '?')"
+    USB_VID_PID="$(awk -F= '/^PRODUCT=/{print $2}' \
+                  /sys/class/net/wlan1/device/uevent 2>/dev/null || echo '?')"
+    echo -e "${GREEN}      USB topology: bus=${USB_BUSNUM} driver=${USB_DRIVER} product=${USB_VID_PID}${NC}"
+    case "${USB_DRIVER}" in
+        mt76x2u|mt76x0u|rt2800usb)
+            if [ "${USB_BUSNUM}" = "2" ]; then
+                echo -e "${RED}      ╔════════════════════════════════════════════════════════╗${NC}"
+                echo -e "${RED}      ║  WARNING: ${USB_DRIVER} dongle is on the SuperSpeed (USB-3) bus. ║${NC}"
+                echo -e "${RED}      ║  This combination is documented to flap (disconnect    ║${NC}"
+                echo -e "${RED}      ║  every 10–30 s) on the Pi 4B due to an upstream Linux  ║${NC}"
+                echo -e "${RED}      ║  xhci_hcd / mt76 quirk.                                ║${NC}"
+                echo -e "${RED}      ║                                                        ║${NC}"
+                echo -e "${RED}      ║  Move the dongle to a BLACK USB-2 port and re-run      ║${NC}"
+                echo -e "${RED}      ║  this installer.  See README §'AP keeps dropping'.     ║${NC}"
+                echo -e "${RED}      ╚════════════════════════════════════════════════════════╝${NC}"
+                echo -e "${YELLOW}      Continuing anyway — you can also test now.${NC}"
+            else
+                echo -e "${GREEN}      → on USB-2 high-speed bus, expected stable.${NC}"
+            fi ;;
+    esac
+
     # Heads-up only: not all USB chipsets support AP mode.  Most modern ones
     # do (RTL8188, MT7601/76xx, RT5370, etc.); if `iw list` shows no AP
     # interface mode anywhere we warn but still try — `nmcli c up` will
@@ -429,6 +478,7 @@ else
         echo -e "${YELLOW}      Warning: no radio reports AP-mode support."
         echo -e "      Activation may fail; check your dongle's chipset.${NC}"
     fi
+
 
     # Idempotent recreate.  This is what makes re-running the installer
     # always converge: previous profile is wiped, new one written with
@@ -449,7 +499,7 @@ else
         connection.autoconnect yes \
         connection.autoconnect-retries 0 \
         connection.autoconnect-priority 100 \
-        ipv4.dhcp-leasetime 3600 \
+        ipv4.shared-dhcp-lease-time 3600 \
         >/dev/null
     # Notes on the hardening flags:
     #   * autoconnect-retries 0  → never give up.  Default is 4, after
@@ -458,11 +508,16 @@ else
     #   * autoconnect-priority 100 → win every autoconnect race.  If a
     #     future user accidentally creates a second profile bound to
     #     wlan1 (e.g. a STA test profile), this one still wins.
-    #   * ipv4.dhcp-leasetime 3600 → 1-hour leases instead of NM's
-    #     default 1-hour-but-clients-renew-every-30-min.  Stops phones
-    #     from re-running their captive-portal probe every renewal,
-    #     which is what surfaces the "Unable to join" error if our
-    #     AP-side dnsmasq has a bad moment.
+    #   * ipv4.shared-dhcp-lease-time 3600 → 1-hour leases instead of
+    #     NM's default 1-hour-but-clients-renew-every-30-min.  Stops
+    #     phones from re-running their captive-portal probe every
+    #     renewal, which is what surfaces the "Unable to join" error
+    #     if our AP-side dnsmasq has a bad moment.
+    #     IMPORTANT — do NOT use `ipv4.dhcp-leasetime` here: that is
+    #     the *client*-side DHCP-renewal knob and NM 1.52 (trixie)
+    #     refuses it as an invalid property when method=shared.  The
+    #     server-side equivalent is `ipv4.shared-dhcp-lease-time`.
+
 
     # If the connection was already up (e.g. on a re-install), the new
     # dnsmasq-shared.d snippet won't take effect until the per-AP
@@ -507,9 +562,29 @@ fi
 echo -e "${GREEN}[8/9] Installing systemd unit…${NC}"
 install -m 0644 "$SCRIPT_DIR/service/ais-wifi-manager.service" \
     /etc/systemd/system/${SERVICE_NAME}.service
+# Hotspot watchdog — small Type=simple supervisor that polls
+# `nmcli c show --active` every 5 s and runs `nmcli c up ais-hotspot`
+# if the AP isn't activated.  Self-heals against:
+#   * cable / dongle re-enumeration,
+#   * future regressions of the mt76x2u/xhci flapping bug,
+#   * hand-edited NM profiles that briefly break activation.
+# Lives in a separate unit so a wedged watchdog can't take the
+# main web service down with it.
+install -m 0644 "$SCRIPT_DIR/service/ais-hotspot-watchdog.service" \
+    /etc/systemd/system/ais-hotspot-watchdog.service
 systemctl daemon-reload
 systemctl enable --now ${PS_SERVICE_NAME}.service
 systemctl enable --now ${SERVICE_NAME}.service
+systemctl enable --now ais-hotspot-watchdog.service
+# `enable --now` only *starts* a stopped unit; it does NOT restart an
+# already-running one.  On re-installs, the web service keeps running
+# the OLD code (which is why fresh routes like /hotspot-detect.html
+# returned 404 in field reports).  `try-restart` only acts if the unit
+# is currently active, which is exactly what we want — won't interfere
+# with the `enable --now` we just did on a fresh install.
+systemctl try-restart ${SERVICE_NAME}.service || true
+systemctl try-restart ais-hotspot-watchdog.service || true
+
 
 # -- 9. Optional Tailscale ------------------------------------------------
 if [ "$WITH_TAILSCALE" = 1 ]; then

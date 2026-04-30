@@ -75,11 +75,32 @@ sudo apt-get install -y git
 git clone https://github.com/JLBMaritime/AIS-WiFi-Manager.git
 cd AIS-WiFi-Manager
 
-# 2. Run the installer (add --with-tailscale if you want it; see below)
+# 2. Make the installer executable.  This step is REQUIRED if you
+#    uploaded the project to GitHub via the web "Add file → Upload
+#    files" UI rather than via `git push` from a Linux/macOS shell:
+#    GitHub's web uploader strips the POSIX +x bit from .sh files,
+#    so a fresh `git clone` will give you `install.sh` mode 0644 and
+#    `sudo ./install.sh` will fail with `Permission denied`.
+#    `chmod +x` is harmless if the bit is already set — run it
+#    unconditionally.
+chmod +x install.sh uninstall.sh
+
+# 3. Run the installer (add --with-tailscale if you want it; see below)
 sudo ./install.sh
 # or:
 # sudo ./install.sh --with-tailscale
 ```
+
+> **Why `chmod +x` is needed at all.**  In a "normal" Git workflow the
+> executable bit travels with the file in the repository's tree object
+> and survives `git clone` intact.  But if any contributor has ever
+> dragged-and-dropped `install.sh` through GitHub's **Add file →
+> Upload files** page (or edited it through the web "pencil" editor),
+> GitHub stores the file with mode `100644` and every subsequent clone
+> ships it non-executable.  A one-line `chmod +x` is the quick fix;
+> the permanent fix on a Linux dev box is `git update-index --chmod=+x
+> install.sh && git commit && git push`.
+
 
 The installer will:
 
@@ -455,10 +476,73 @@ The `doctor` subcommand validates the drop-in *and* sends a real
 `dig @192.168.4.1 captive.apple.com` so a future regression of this
 class of bug is caught before the next phone tries to join.
 
+### USB Wi-Fi dongle keeps dropping out (`mt76x2u` + Pi 4B USB-3 bug)
+
+**Symptom**: the AP `JLBMaritime-AIS` appears, vanishes, reappears in a
+loop every 10–30 s.  Phones say *"Unable to join"* or join briefly and
+then lose Wi-Fi.  `journalctl -k` shows a textbook MediaTek + xhci
+storm:
+
+```
+mt76x2u 2-1:1.0: timed out waiting for pending tx
+xhci_hcd 0000:01:00.0: WARN Set TR Deq Ptr cmd failed due to incorrect
+                       slot or ep state.
+usb 2-1: USB disconnect, device number 5
+usb 2-1: new SuperSpeed USB device number 6 using xhci_hcd
+…
+```
+
+`nmcli c show --active` flips between `ais-hotspot:activated` and
+`ais-hotspot:` (gone) every 30 s.
+
+**Cause**: the MediaTek MT7612U / MT7610U chipset (very common in
+"USB 3.0 dual-band Wi-Fi adapters" — Alfa AWUS036ACS, TP-Link
+Archer T2U Plus, BrosTrend AC1L, etc.) plus the in-tree `mt76x2u`
+driver plus the Pi 4B's `xhci_hcd` SuperSpeed implementation is a
+documented bad triplet.  The chipset works flawlessly on USB-2
+high-speed but is unstable on the Pi's SuperSpeed (USB-3) controller.
+The `rt2800usb` and `mt76x0u` drivers are also known to misbehave on
+the same hardware.
+
+**Fix**: move the dongle from a **BLUE** (USB-3) port on the Pi 4B to
+a **BLACK** (USB-2) port.  No software change is needed; the same
+driver is rock-solid at high-speed.  After moving:
+
+```bash
+sudo systemctl restart NetworkManager
+sudo nmcli c up ais-hotspot
+sudo ais-wifi-cli doctor       # "Wi-Fi dongle USB stability" should
+                               # now read "0 disconnects in last 5 min"
+```
+
+**Detection**:
+
+* `install.sh` step 7b prints a loud red banner if it detects a known
+  risky driver (`mt76x2u` / `mt76x0u` / `rt2800usb`) on the
+  SuperSpeed bus at install time.
+* `ais-wifi-cli doctor` runs a "Wi-Fi dongle USB stability" check that
+  scans `journalctl -k --since "5 minutes ago"` for `USB disconnect`
+  events; ≥2 disconnects (or ≥1 on a known-risky driver/bus combo)
+  is flagged red with a recommendation to move ports.
+* `ais-hotspot-watchdog.service` (a separate systemd unit installed
+  alongside the web service) polls `nmcli` every 5 s and runs
+  `nmcli c up ais-hotspot` with exponential backoff (5/10/20/40/80 s,
+  capped at 5 min) if the AP is anything other than `activated` for
+  ≥15 s.  This means even a one-off disconnect from cable jiggle or
+  a power blip self-heals without operator intervention.
+
+**Why we don't try to fix this in software**: there is no portable way
+to *force* a USB device onto a specific bus from userspace, and
+disabling the USB-3 controller entirely (via
+`dwc_otg.speed=1` / `usb-storage.quirks`) breaks legitimate USB-3
+storage you might want to plug in later.  Moving one cable is the
+right answer.
+
 ### SSH disconnects mid-install
 
 
 This is expected — step 1 installs `network-manager`, which on some
+
 images briefly bounces wlan0. The installer detects you're on SSH and
 prints a 5-second countdown so you can move into `tmux`/`screen` or
 connect over the management AP at `192.168.4.1` instead. Whatever

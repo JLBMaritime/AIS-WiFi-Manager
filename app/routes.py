@@ -97,6 +97,16 @@ def healthz():
 # before the user has had any chance to log in.  None of them leak any
 # information; they're literally hard-coded constant strings.
 #
+# REGRESSION GUARD — DO NOT add @login_required to any captive_*
+# function below.  If you do, every iPhone / Android / Windows device
+# that joins JLBMaritime-AIS will see "Unable to join this network"
+# (iOS) or refuse to mark the network as having internet (Android),
+# because the OS-issued probe will receive a 302→/login redirect
+# instead of the magic body / 204 / NCSI string each OS expects to
+# byte-match.  This was field-tested and broke join flow on three
+# different devices in 2024 — please don't relitigate it.
+
+#
 # Cross-references:
 #   * Apple:    https://support.apple.com/en-us/HT204497
 #   * Google:   https://www.chromium.org/chromium-os/chromiumos-design-docs/network-portal-detection/
