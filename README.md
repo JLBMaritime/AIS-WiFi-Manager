@@ -298,3 +298,115 @@ sudo ./uninstall.sh
 This stops both services, removes the unit files, deletes the CLI shim,
 optionally deletes `/opt/ais-wifi-manager` (config + saved networks),
 and optionally tears down the hotspot.
+
+## Troubleshooting
+
+### `ais-wifi-cli doctor`
+
+The fastest way to find out why a Pi is misbehaving is:
+
+```bash
+sudo ais-wifi-cli doctor
+```
+
+It validates every file under `/etc/NetworkManager/conf.d/`, checks
+NetworkManager and the web service are active, sanity-checks
+`/etc/resolv.conf`, confirms the AP is up, and pings the local
+`/healthz` endpoint. Each check prints `✓` (pass), `!` (warning) or
+`✗` (fail) and the command exits non-zero if any check fails — handy
+in CI / Ansible / Watchtower.
+
+### Pi boots but Wi-Fi, AP and SSH are all dead (the `;`-comment trap)
+
+**Symptom**: after a fresh install or `apt full-upgrade`, the Pi powers
+up but is unreachable: no SSH on the LAN, no `JLBMaritime-AIS` SSID, no
+DNS resolution from the console (`Temporary failure in name
+resolution`).  `systemctl status NetworkManager` shows
+`activating (auto-restart)` cycling through `Result: exit-code` and
+finally `failed`.
+
+**Cause**: glib's keyfile parser (used by NetworkManager 1.52 on
+Debian 13 *trixie*) **rejects `;` as a comment character** in
+`/etc/NetworkManager/conf.d/*.conf`. Older glib silently accepted it.
+A single `;`-prefixed line is enough to make NM exit 1, hit
+systemd's restart-limit (5 starts in 10 s), and stay in `failed`. With
+NM gone, every interface goes with it: wlan0 (uplink), wlan1 (AP),
+even `dns=default` writes to `/etc/resolv.conf` stop happening.
+
+**One-line recovery** (plug the Pi into a monitor + USB keyboard, or
+use the serial console on the GPIO header):
+
+```bash
+sudo sed -i 's/^[[:space:]]*;/#/' /etc/NetworkManager/conf.d/*.conf \
+  && sudo nmcli general reload \
+  && sudo systemctl is-active NetworkManager
+```
+
+If you can't get a console at all, pull the SD card, mount the
+`rootfs` partition on another Linux box, and run the same `sed` on
+`<mount>/etc/NetworkManager/conf.d/*.conf`.
+
+**Prevention**: `install.sh` v2 ships a `validate_nm_conf()` guard
+that rejects `;`-comments at install time, plus the `doctor`
+subcommand that catches the same bug post-install.  Both are tested
+in CI; please don't remove them.
+
+### Tailscale broke my DNS (`dns=systemd-resolved`)
+
+**Symptom**: shortly after `tailscale up` (or after any
+`apt upgrade tailscale`), name resolution dies and a reboot makes
+NetworkManager fail to start.
+
+**Cause**: the upstream Tailscale installer drops
+`/etc/NetworkManager/conf.d/tailscale.conf` containing
+`dns=systemd-resolved`. RPi OS *Lite* doesn't enable
+`systemd-resolved`, so NM tries to load a plugin that isn't there and
+exits.
+
+**Fix**:
+
+```bash
+sudo rm -f /etc/NetworkManager/conf.d/tailscale.conf
+sudo nmcli general reload
+```
+
+The installer pre-empts this by writing `00-dns.conf` with
+`dns=default` *before* installing Tailscale, and by scrubbing
+`tailscale.conf` afterwards. `ais-wifi-cli doctor` flags it if it
+ever returns.
+
+### Hotspot fails to come up: *"IP configuration could not be reserved"*
+
+**Cause**: the full `dnsmasq` package is installed (instead of
+`dnsmasq-base`) and has bound `:53`/`:67` on `0.0.0.0`, stealing the
+ports NetworkManager's own dnsmasq needs for the AP's `ipv4.method
+shared` to work.
+
+**Fix**:
+
+```bash
+sudo systemctl disable --now dnsmasq
+sudo apt-get install --reinstall -y dnsmasq-base
+sudo apt-get remove -y dnsmasq          # NB: removes the FULL package only
+sudo nmcli c up ais-hotspot
+```
+
+`sudo ais-wifi-cli hotspot diagnose` lists who is bound to those
+ports.
+
+### SSH disconnects mid-install
+
+This is expected — step 1 installs `network-manager`, which on some
+images briefly bounces wlan0. The installer detects you're on SSH and
+prints a 5-second countdown so you can move into `tmux`/`screen` or
+connect over the management AP at `192.168.4.1` instead. Whatever
+you do, the full install transcript is captured to
+`/var/log/ais-wifi-install.log` — after reconnecting, run:
+
+```bash
+sudo tail -n 200 /var/log/ais-wifi-install.log
+```
+
+to see exactly where it got to (or whether it crashed).
+
+

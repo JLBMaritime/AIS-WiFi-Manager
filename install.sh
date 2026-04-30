@@ -31,8 +31,73 @@
 
 set -euo pipefail
 
+# -- Tee everything to a log file ----------------------------------------
+# So that an SSH disconnect (we touch NetworkManager — wlan0 may briefly
+# bounce, killing your SSH session) never destroys post-mortem visibility.
+# After reconnecting:  sudo tail -n 200 /var/log/ais-wifi-install.log
+INSTALL_LOG="/var/log/ais-wifi-install.log"
+if [ "$EUID" -eq 0 ]; then
+    : > "$INSTALL_LOG" 2>/dev/null || true
+    exec > >(tee -a "$INSTALL_LOG") 2>&1
+fi
+
 # -- Colours --------------------------------------------------------------
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+
+# -- Helpers --------------------------------------------------------------
+# validate_nm_conf <file>
+#   Reject any line that isn't blank, a [group], a key=value, or a `#…`
+#   comment.  This is the exact rule glib's keyfile parser enforces from
+#   2.78 onwards (Debian 13 trixie / NM 1.52); a single `;`-comment is
+#   enough to make NM crash-loop on boot and take wlan0/wlan1 down with
+#   it.  Calling this BEFORE we trigger a reload is the single most
+#   important guard in this installer — please don't remove.
+validate_nm_conf() {
+    local f="$1"
+    local n=0 bad=0
+    while IFS= read -r line; do
+        n=$((n+1))
+        # strip CR (in case of CRLF) and leading whitespace
+        local stripped="${line%$'\r'}"
+        stripped="${stripped#"${stripped%%[![:space:]]*}"}"
+        case "$stripped" in
+            ''|'#'*|'['*) ;;                      # ok: blank / comment / group
+            *=*) ;;                                # ok: key = value
+            *)
+                echo -e "${RED}      INVALID line $n in $f:${NC} $line"
+                bad=$((bad+1))
+                ;;
+        esac
+    done < "$f"
+    if [ "$bad" -gt 0 ]; then
+        echo -e "${RED}      $f has $bad invalid line(s) — refusing to install it.${NC}"
+        echo -e "${RED}      (NM 1.52 on trixie rejects ';' comments.  Use '#'.)${NC}"
+        return 1
+    fi
+}
+
+# nm_reload
+#   Re-read /etc/NetworkManager/conf.d/* WITHOUT tearing down active
+#   radio links.  Falls back to a hard restart only if reload fails.
+#   Crucially: it asserts NM is `is-active` afterwards and dumps the
+#   journal + aborts if not — which is what would have caught the
+#   original `;`-comment bug at install time instead of next reboot.
+nm_reload() {
+    if nmcli general reload >/dev/null 2>&1; then
+        :
+    else
+        systemctl restart NetworkManager
+    fi
+    sleep 2
+    if ! systemctl is-active --quiet NetworkManager; then
+        echo -e "${RED}      NetworkManager is not active after reload!${NC}"
+        echo "      Last 30 NM journal lines:"
+        journalctl -u NetworkManager -n 30 --no-pager | tail -n 30 || true
+        echo -e "${RED}      Refusing to continue — would leave Pi unbootable.${NC}"
+        return 1
+    fi
+}
+
 
 # -- Config ---------------------------------------------------------------
 INSTALL_DIR="/opt/ais-wifi-manager"
@@ -65,6 +130,28 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "========================================="
 echo " AIS-WiFi Manager — installation"
 echo "========================================="
+
+# -- SSH detection / warning ---------------------------------------------
+# We'll be touching NetworkManager (writing conf.d files, reloading, and
+# bringing up the AP).  An `nmcli general reload` is non-disruptive, but
+# step 1 also installs network-manager itself which on some images can
+# briefly bounce wlan0 — and if you're SSH'd in over wlan0 your session
+# will die mid-install.  The installer carries on regardless (everything
+# is logged to $INSTALL_LOG), but the user has no way to know.  Print a
+# clear warning and offer them 5 s to abort and switch to tmux/screen
+# or to run from the AP at 192.168.4.1.
+if [ -n "${SSH_CONNECTION:-}" ]; then
+    echo
+    echo -e "${YELLOW}NOTICE: you are running this installer over SSH (${SSH_CONNECTION}).${NC}"
+    echo -e "${YELLOW}        Wi-Fi may briefly bounce; if your session drops, reconnect"
+    echo -e "${YELLOW}        after ~30 s and follow progress with:${NC}"
+    echo -e "${YELLOW}            sudo tail -f $INSTALL_LOG${NC}"
+    echo -e "${YELLOW}        (For zero-risk: run inside ${GREEN}tmux${YELLOW} or ${GREEN}screen${YELLOW},"
+    echo -e "${YELLOW}        or connect over the management AP at ${GREEN}192.168.4.1${YELLOW}.)${NC}"
+    echo -e "${YELLOW}        Continuing in 5 s — Ctrl-C to abort.${NC}"
+    sleep 5
+fi
+
 
 # -- 1. APT packages ------------------------------------------------------
 echo -e "${GREEN}[1/9] Installing system packages…${NC}"
@@ -150,10 +237,20 @@ chmod +x /usr/local/bin/ais-wifi-cli
 
 # -- 6. Wi-Fi power-save off + NM DNS hardening --------------------------
 echo -e "${GREEN}[6/9] Disabling Wi-Fi power-save on wlan0…${NC}"
+
+# Validate the conf.d files we ship BEFORE installing them.  glib's
+# keyfile parser (used by NM 1.52 on Debian 13 trixie) rejects `;` as a
+# comment character — a single bad line is enough to make NM crash-loop
+# on boot and take wlan0/wlan1/SSH down with it.  We caught this with a
+# fresh-install field report; validate_nm_conf is the regression guard.
+echo -e "${GREEN}      Validating shipped NetworkManager drop-ins…${NC}"
+validate_nm_conf "$SCRIPT_DIR/service/wifi-powersave-off.conf" || exit 1
+
 install -m 0644 "$SCRIPT_DIR/service/wifi-powersave-off.conf" \
     /etc/NetworkManager/conf.d/wifi-powersave-off.conf
 install -m 0644 "$SCRIPT_DIR/service/ais-wifi-powersave-off.service" \
     /etc/systemd/system/${PS_SERVICE_NAME}.service
+
 
 # Lock NetworkManager's DNS plugin to the simple built-in writer BEFORE
 # anything (Tailscale, in particular) gets a chance to re-write it.
@@ -207,8 +304,12 @@ systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
 systemctl mask    systemd-networkd-wait-online.service 2>/dev/null || true
 
 # Reload NM so it picks up dns=default before we proceed.
-systemctl restart NetworkManager 2>/dev/null || true
-sleep 1
+# nm_reload uses `nmcli general reload` which DOESN'T tear down active
+# radio links — your SSH session over wlan0 stays alive.  It also
+# asserts NM is is-active afterwards and aborts the install if not,
+# which is the regression guard for the trixie `;`-comment bug we hit.
+nm_reload || exit 1
+
 
 
 # -- 7. Always-on management hotspot on wlan1 -----------------------------
@@ -369,13 +470,23 @@ if [ "$WITH_TAILSCALE" = 1 ]; then
         echo -e "      (Tailscale set dns=systemd-resolved which breaks NM on"
         echo -e "      RPi OS Lite — see install.sh step 6 for details).${NC}"
         rm -f /etc/NetworkManager/conf.d/tailscale.conf
-        systemctl restart NetworkManager 2>/dev/null || true
-        sleep 2
+        nm_reload || exit 1
     fi
 
-    # Confirm NM is still healthy after the Tailscale install.  If not,
-    # we surface the journal tail so a human can see why immediately
-    # rather than discovering "Pi won't boot" the next morning.
+    # Belt-and-braces: validate every conf.d file present (including any
+    # written by Tailscale) so we'd catch a future regression of the same
+    # `;`-comment / unknown-key class of bug *before* it hits the next
+    # reboot.  Don't auto-delete — refuse to continue and let a human
+    # decide.
+    for f in /etc/NetworkManager/conf.d/*.conf; do
+        [ -f "$f" ] || continue
+        validate_nm_conf "$f" || {
+            echo -e "${RED}      Refusing to leave you with an unbootable system.${NC}"
+            exit 1
+        }
+    done
+
+    # Confirm NM is still healthy after the Tailscale install.
     if ! systemctl is-active --quiet NetworkManager; then
         echo -e "${RED}      NetworkManager is not active after Tailscale install!${NC}"
         echo "      Last 30 NM journal lines:"
@@ -383,6 +494,7 @@ if [ "$WITH_TAILSCALE" = 1 ]; then
         echo -e "${RED}      Refusing to leave you with an unbootable system.${NC}"
         exit 1
     fi
+
 
     echo -e "${YELLOW}      Run 'sudo tailscale up --ssh' afterwards to join your tail-net.${NC}"
 else

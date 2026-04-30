@@ -917,8 +917,141 @@ def cmd_hotspot(argv):
 
 
 
+def cmd_doctor(_argv):
+    """`ais-wifi-cli doctor` — non-destructive system health probe.
+
+    The original cause of "Pi appears dead after a fresh install" was a
+    `;`-comment in /etc/NetworkManager/conf.d/wifi-powersave-off.conf
+    which glib's keyfile parser (NM 1.52 / Debian 13 trixie) rejects;
+    NetworkManager then crash-loops 5 times and gives up, taking
+    wlan0 / wlan1 / SSH / the AP / DNS down with it.
+
+    This subcommand runs the SAME validator the installer uses against
+    every file in /etc/NetworkManager/conf.d/, plus a handful of other
+    spot-checks (NM active? AP up? web service alive? resolv.conf sane?)
+    and prints a green/red report.  Run it after any operation that
+    might touch NM (Tailscale install, manual conf.d edits, etc.) to
+    catch regressions BEFORE the next reboot, not after.
+    """
+    import glob
+    rc = 0
+    GREEN = Colors.GREEN; RED = Colors.RED; YEL = Colors.YELLOW
+
+    def ok(msg):  print(color_text(f"  ✓ {msg}", GREEN))
+    def fail(msg): print(color_text(f"  ✗ {msg}", RED))
+    def warn(msg): print(color_text(f"  ! {msg}", YEL))
+
+    print(color_text("\nNetworkManager conf.d validation", Colors.BOLD))
+    bad_files = []
+    for f in sorted(glob.glob('/etc/NetworkManager/conf.d/*.conf')):
+        bad_lines = []
+        try:
+            with open(f, 'r', encoding='utf-8', errors='replace') as fh:
+                for i, line in enumerate(fh, 1):
+                    s = line.rstrip('\r\n').lstrip()
+                    if s == '' or s.startswith('#') or s.startswith('['):
+                        continue
+                    if '=' in s:
+                        continue
+                    bad_lines.append((i, line.rstrip('\n')))
+        except OSError as e:
+            warn(f"{f}: cannot read ({e})")
+            continue
+        if bad_lines:
+            bad_files.append(f)
+            fail(f"{f}: {len(bad_lines)} invalid line(s)")
+            for i, l in bad_lines[:3]:
+                print(f"        line {i}: {l!r}")
+            print(f"        glib's keyfile parser rejects ';' comments — use '#'.")
+            rc = 1
+        else:
+            ok(f"{f}: ok")
+    if not bad_files and not glob.glob('/etc/NetworkManager/conf.d/*.conf'):
+        warn("No conf.d drop-ins present (that's fine, just unusual).")
+
+    print(color_text("\nServices", Colors.BOLD))
+    for unit, label in [
+        ('NetworkManager', 'NetworkManager'),
+        ('ais-wifi-manager', 'AIS-WiFi Manager web service'),
+    ]:
+        try:
+            r = subprocess.run(['systemctl', 'is-active', unit],
+                               capture_output=True, text=True)
+            if r.stdout.strip() == 'active':
+                ok(f"{label} is active")
+            else:
+                fail(f"{label} is {r.stdout.strip() or 'unknown'}")
+                rc = 1
+        except Exception as e:
+            warn(f"{label}: {e}")
+
+    # Tailscale conf.d trap that left several Pis unbootable.
+    if os.path.exists('/etc/NetworkManager/conf.d/tailscale.conf'):
+        try:
+            with open('/etc/NetworkManager/conf.d/tailscale.conf') as fh:
+                if 'systemd-resolved' in fh.read():
+                    fail("Tailscale wrote dns=systemd-resolved into NM "
+                         "conf.d — that breaks NM on RPi OS Lite.")
+                    print("        Fix:  sudo rm "
+                          "/etc/NetworkManager/conf.d/tailscale.conf "
+                          "&& sudo nmcli general reload")
+                    rc = 1
+        except OSError:
+            pass
+
+    print(color_text("\nDNS / resolv.conf", Colors.BOLD))
+    try:
+        if os.path.islink('/etc/resolv.conf') and not os.path.exists('/etc/resolv.conf'):
+            fail("/etc/resolv.conf is a dangling symlink (DNS broken).")
+            rc = 1
+        else:
+            with open('/etc/resolv.conf') as fh:
+                if 'nameserver' in fh.read():
+                    ok("/etc/resolv.conf has a nameserver")
+                else:
+                    fail("/etc/resolv.conf has no nameserver lines.")
+                    rc = 1
+    except OSError as e:
+        warn(f"/etc/resolv.conf: {e}")
+
+    print(color_text("\nHotspot", Colors.BOLD))
+    try:
+        r = subprocess.run(['nmcli', '-t', '-f', 'NAME,STATE',
+                            'c', 'show', '--active'],
+                           capture_output=True, text=True)
+        if any(line.startswith('ais-hotspot:activated')
+               for line in r.stdout.splitlines()):
+            ok("ais-hotspot is activated (192.168.4.1)")
+        else:
+            warn("ais-hotspot is not activated. "
+                 "Run: sudo ais-wifi-cli hotspot up")
+    except Exception as e:
+        warn(f"nmcli: {e}")
+
+    print(color_text("\nWeb UI", Colors.BOLD))
+    try:
+        import urllib.request
+        with urllib.request.urlopen('http://127.0.0.1/healthz',
+                                    timeout=3) as r2:
+            if r2.status == 200:
+                ok("/healthz returns 200")
+            else:
+                fail(f"/healthz returns {r2.status}")
+                rc = 1
+    except Exception as e:
+        warn(f"/healthz unreachable: {e}")
+
+    print()
+    if rc == 0:
+        print(color_text("All checks passed.", Colors.GREEN))
+    else:
+        print(color_text("One or more checks FAILED.  See above.", Colors.RED))
+    return rc
+
+
 def cmd_health(_argv):
     """`ais-wifi-cli health` — quick liveness check."""
+
     import urllib.request
     import urllib.error
     try:
@@ -944,7 +1077,12 @@ def _dispatch_subcommand():
         'show-hotspot':   cmd_show_hotspot,
         'hotspot':        cmd_hotspot,
         'health':         cmd_health,
+        # `doctor` is the post-mortem helper for the trixie NM-conf.d
+        # crash-loop class of bug.  It re-uses the validator from
+        # install.sh so the rule-set stays in sync.
+        'doctor':         cmd_doctor,
     }
+
     if sub in handlers:
         sys.exit(handlers[sub](sys.argv[2:]) or 0)
     if sub in ('-h', '--help', 'help'):
