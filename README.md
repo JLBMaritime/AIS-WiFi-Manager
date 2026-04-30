@@ -74,6 +74,7 @@ sudo apt-get update
 sudo apt-get install -y git
 git clone https://github.com/JLBMaritime/AIS-WiFi-Manager.git
 cd AIS-WiFi-Manager
+sudo chmod +x install.sh
 
 # 2. Run the installer (add --with-tailscale if you want it; see below)
 sudo ./install.sh
